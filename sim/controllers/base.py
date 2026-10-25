@@ -8,7 +8,8 @@ class Controller(ABC):
 
     State keys: time_s, position_m (world XYZ), orientation_wxyz (body-to-world
     quaternion), linear_velocity_m_s (world XYZ), angular_velocity_rad_s
-    (world XYZ). The current actuator command is total_thrust_N, along body +Z.
+    (world XYZ). Commands are either total_thrust_N along body +Z, or
+    motor_commands (four raw firmware force commands, ordered M1..M4).
     """
 
     @abstractmethod
