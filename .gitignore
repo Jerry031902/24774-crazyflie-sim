@@ -54,3 +54,7 @@ tools/dependency/web/data.js
 # Clangd
 compile_commands.json
 .cache/**
+
+# Local warehouse exports, downloaded assets, and download reports.
+/sim/scenes/warehouse*
+/sim/scenes/htg_scene.usd
