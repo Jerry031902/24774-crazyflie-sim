@@ -1,0 +1,4 @@
+# The image only installs dependencies. Source and USD assets are bind-mounted.
+# Exclude warehouse exports, assets, caches and all other files from the context.
+**
+!Dockerfile
