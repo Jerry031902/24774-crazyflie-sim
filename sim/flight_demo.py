@@ -98,7 +98,8 @@ class FlightLog:
         self.measurements = None
         self.measurement_writer = None
 
-    def write(self, state, target, command, phase):
+    def write(self, state, target, command, phase, extra=None):
+        """extra: optional dict of additional columns, same keys on every row."""
         _, rpy = rotation_and_rpy(state["orientation_wxyz"])
         attitude = np.degrees(rpy) * [1, -1, 1]
         row = {"time_s": state["time_s"], "phase": phase, "tick": command["tick"]}
@@ -142,6 +143,8 @@ class FlightLog:
                     self.measurement_writer = csv.DictWriter(self.measurements, fieldnames=list(innovation))
                     self.measurement_writer.writeheader()
                 self.measurement_writer.writerow(innovation)
+        if extra:
+            row.update(extra)
         if self.writer is None:
             self.writer = csv.DictWriter(self.file, fieldnames=list(row))
             self.writer.writeheader()

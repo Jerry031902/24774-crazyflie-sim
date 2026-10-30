@@ -18,6 +18,7 @@ include = [
     "src/platform/interface",
     "vendor/CMSIS/CMSIS/DSP/Include",
     "vendor/CMSIS/CMSIS/Core/Include",
+    "apps/wedgebug/src",
 ]
 
 fw_sources = [
@@ -55,6 +56,7 @@ fw_sources = [
     "src/modules/src/kalman_core/mm_tof.c",
     "src/modules/src/kalman_core/mm_flow.c",
     "src/modules/src/kalman_core/mm_distance.c",
+    "apps/wedgebug/src/wedgebug.c",
 ]
 
 cffirmware = Extension(

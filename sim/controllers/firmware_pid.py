@@ -85,6 +85,8 @@ class FirmwarePIDController(Controller):
     """Call the unmodified C PID once per 1 ms simulation step.
 
     Normal target: position_m (world XYZ, m), optional yaw_rad (RH yaw).
+    Hover target: velocity_body_m_s (forward, left), yaw_rate_rad_s, and
+    position_m whose Z is held; X/Y are ignored.
     Sign-test/manual target: attitude_legacy_deg (roll, inverted pitch, yaw)
     and collective_command (firmware units), with position control disabled.
     Output motor_commands contains raw, uncapped M1..M4 force commands, NOT PWM.
@@ -213,6 +215,25 @@ class FirmwarePIDController(Controller):
                 raise ValueError("collective_command must be in [0,65535]")
             sp.attitude.roll, sp.attitude.pitch, sp.attitude.yaw = map(float, angles)
             sp.thrust = collective
+            sp.mode.yaw = cf.modeAbs
+        elif "velocity_body_m_s" in target:
+            # Hover setpoint, as the WedgeBug app sends it: body-frame XY
+            # velocity (position_controller_pid.c:221-229 with velocity_body),
+            # absolute Z, and a yaw rate integrated into the yaw setpoint
+            # (controller_pid.c:87-88). Yaw rate is RH-positive deg/s; this
+            # bypasses the CRTP hover packet's yaw-rate negation.
+            vx, vy = map(float, target["velocity_body_m_s"])
+            z = float(vector3(target["position_m"])[2])
+            yaw_rate = float(target.get("yaw_rate_rad_s", 0.0))
+            if not all(map(math.isfinite, (vx, vy, yaw_rate))):
+                raise ValueError("velocity_body_m_s and yaw_rate_rad_s must be finite")
+            sp.velocity.x, sp.velocity.y, sp.velocity.z = vx, vy, 0.0
+            sp.velocity_body = True
+            sp.mode.x = sp.mode.y = cf.modeVelocity
+            sp.position.z = z
+            sp.mode.z = cf.modeAbs
+            sp.attitudeRate.yaw = math.degrees(yaw_rate)
+            sp.mode.yaw = cf.modeVelocity
         else:
             assign_xyz(sp.position, vector3(target["position_m"]))
             sp.mode.x = sp.mode.y = sp.mode.z = cf.modeAbs
@@ -220,9 +241,9 @@ class FirmwarePIDController(Controller):
             if not math.isfinite(yaw):
                 raise ValueError("yaw_rad must be finite")
             sp.attitude.yaw = math.degrees(math.atan2(math.sin(yaw), math.cos(yaw)))
-        # Absolute yaw is RH-positive about +Z. This bypasses CRTP packet-level
-        # yaw negation; controller_pid.c:104-109,149 performs its own mixing sign.
-        sp.mode.yaw = cf.modeAbs
+            # Absolute yaw is RH-positive about +Z. This bypasses CRTP packet-level
+            # yaw negation; controller_pid.c:104-109,149 performs its own mixing sign.
+            sp.mode.yaw = cf.modeAbs
 
         # The C code gates position on tick % 10, attitude/rate on tick % 2.
         # stabilizer_types.h:363-377; controller_pid.c:85,115,119.

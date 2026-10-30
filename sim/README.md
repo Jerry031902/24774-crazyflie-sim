@@ -37,20 +37,27 @@ Shared C algorithms can be tested in sim and reused on hardware after adding the
 24774-crazyflie-sim/
 ├── src/ bindings/ Makefile ...   firmware source and Python bindings
 ├── build/                        build outputs, git-ignored (cffirmware, plots, CSV)
+├── apps/wedgebug/src/            WedgeBug navigator in C (runs in sim via cffirmware; for the drone)
+├── matlab-trajectory-sim/        original MATLAB navigator and 2-D simulator
 └── sim/
     ├── README.md                 this file
     ├── Dockerfile                Isaac Sim 5.1 + C build tools
     ├── build_scene.py            generates scenes/arena.usd
+    ├── build_mission_scene.py    generates a mission's scene, e.g. scenes/matlab_room.usd
     ├── run_sim.py                main entry point
+    ├── mission_flight.py         --mission: takeoff -> WedgeBug navigation -> hold
+    ├── rangers.py                Multi-ranger deck by PhysX ray casts
     ├── sensors.py                IMU / Flow / ToF models
     ├── actuators.py              motor command -> force/torque
     ├── assets/crazyflie/          bundled local drone USD and schema layer
     ├── scenes/arena.usd          walls + obstacles (no drone)
+    ├── scenes/matlab_room.usd    the MATLAB mission's 10 x 8 m room
     ├── BASELINE_EKF.md           source audit, assumptions, measured results
-    ├── plot_flight.py / plot_ekf.py
+    ├── plot_flight.py / plot_ekf.py / plot_mission.py
     ├── tests/                    unit tests and headless PhysX smoke tests
     ├── controllers/              base.py (interface), firmware_pid.py, altitude_pid.py, ...
-    └── estimators/               firmware_ekf.py
+    ├── estimators/               firmware_ekf.py
+    └── navigation/               WedgeBug Python reference port, missions, 2-D test simulator
 ```
 
 ---
@@ -172,13 +179,7 @@ docker exec -it cf_sim_dev bash
 
 The `xhost` entry grants local X access to uid 1234, matching this image's user with the standard Docker Engine configuration above. `cf-sim:dev` is the **image**; `cf_sim_dev` is the **container name**. `PRIVACY_CONSENT=Y` opts into NVIDIA data collection and can be omitted to opt out, as documented in the [Isaac Sim container guide](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/install_container.html).
 
-Later sessions, reuse the same container from the host:
-
-```bash
-xhost '+si:localuser:#1234'
-docker start cf_sim_dev                # if stopped
-docker exec -it cf_sim_dev bash        # enter, or open another shell
-```
+For later sessions, reconnect to this container instead of creating a new one; see [Starting a session](#starting-a-session).
 
 Inside the container, `~` is `/isaac-sim`, and the repo is at `/workspace`. Prompt `isaac-sim@...` = inside, `<you>@...` = host. Do git operations on the **host** (your SSH key is not in the container).
 
@@ -221,6 +222,45 @@ This image contains native C-extension build tools. Building/flashing the STM32 
 
 ---
 
+## Starting a session
+
+Setup is one time. Every later session reuses the existing `cf_sim_dev` container. The container has no restart policy, so it is stopped after a host reboot or a Docker restart.
+
+**1. Start and enter the container** (host):
+
+```bash
+xhost '+si:localuser:#1234'            # after every host login; the GUI cannot open without it
+docker start cf_sim_dev                # if stopped; harmless if already running
+docker exec -it cf_sim_dev bash        # enter, or open another shell
+```
+
+The prompt changes to `isaac-sim@...:/workspace$`; `/workspace` is the repo.
+
+**2. Run something** (container), e.g. a [WedgeBug mission](#wedgebug-navigation-missions) or the firmware demo:
+
+```bash
+/isaac-sim/python.sh /workspace/sim/run_sim.py --mode firmware_pid --mission matlab_main
+/isaac-sim/python.sh /workspace/sim/run_sim.py --mode firmware_pid --demo
+```
+
+The first launch after creating the container compiles shaders and can look frozen for a few minutes. See [Running](#running) for every option.
+
+**3. Stop the simulation:** close the Isaac Sim window (or File > Exit), or press Ctrl+C in its terminal. The CSV is closed either way. If it hangs, run `docker exec cf_sim_dev pkill -f run_sim.py` on the host.
+
+**4. Leave the container:** `exit` (or Ctrl+D) returns to the host prompt. The container keeps running idle, which costs essentially nothing; `docker stop cf_sim_dev` (host) stops it fully. Do git operations on the host.
+
+`docker ps -a --filter name=cf_sim_dev` shows whether the container exists and is running. Do **not** repeat the step 6 `docker run`; it fails because the name is in use. The repo, `build/` (bindings, CSVs, plots), and the container's shader cache persist across `docker start`, so nothing needs rebuilding.
+
+| You changed | Then |
+|---|---|
+| Python under `sim/` | Nothing; rerun the command |
+| Firmware C code or headers | Rebuild the bindings ([step 7](#7-build-the-firmware-python-bindings-inside-the-container)), then rerun |
+| `sim/Dockerfile` | `docker build -t cf-sim:dev sim/`, then `docker rm -f cf_sim_dev` and repeat the step 6 `docker run` |
+
+`docker rm` deletes the container's shader cache and anything installed manually inside it, so the next first launch is slow again. Files under `/workspace` are on the host and are not affected.
+
+---
+
 ## Running
 
 All commands below run **inside the container**, unless labeled host. GUI is the default. `--target-z` defaults to 1.0 m.
@@ -234,10 +274,48 @@ All commands below run **inside the container**, unless labeled host. GUI is the
 | `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode firmware_pid --demo` | Firmware PID on ground truth: takeoff, 10 s settled hover, move to x = 0.5 m |
 | `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode ekf_shadow --demo --noise off` | Ground-truth PID; stock EKF runs alongside and does not control flight |
 | `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode ekf_closed_loop --demo --noise off` | Simulated sensors -> stock EKF -> firmware PID |
+| `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode firmware_pid --mission matlab_main` | WedgeBug navigation (C firmware navigator) through the MATLAB mission, PID on ground truth |
+| `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode ekf_closed_loop --mission matlab_main` | Same mission; navigator and PID see only the EKF estimate |
+| `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode firmware_pid --mission matlab_main --navigator python` | Same mission with the Python reference navigator |
+| `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode firmware_pid --mission matlab_main --headless` | No window; exits once the drone holds at the goal and prints a mission summary |
 
 For either EKF mode, use `--noise on` to add simulated sensor noise; `--noise off` is the default. `--seed 7` selects the default repeatable noise realization. Noise-off retains the firmware filters, process noise, and measurement covariance. `--noise on` is rejected in non-EKF modes.
 
-The EKF demos use a fixed schedule: 0-10 s takeoff/settle, 10-20 s hover, 20-30 s move/settle to (0.5, 0, 1). The ground-truth firmware demo instead switches phases after meeting position/speed tolerances. GUI demos continue holding the final target; `--headless --demo` exits when the demo completes. `--steps N` bounds any mode by physics steps; 1000 steps represent 1 simulation second, not necessarily 1 wall-clock second.
+The EKF demos use a fixed schedule: 0-10 s takeoff/settle, 10-20 s hover, 20-30 s move/settle to (0.5, 0, 1). The ground-truth firmware demo instead switches phases after meeting position/speed tolerances. GUI demos and missions continue holding the final target until the window is closed; `--headless` with `--demo` or `--mission` exits when the run completes. `--steps N` bounds any mode by physics steps; 1000 steps represent 1 simulation second, not necessarily 1 wall-clock second.
+
+### WedgeBug navigation missions
+
+`--mission` flies the reactive navigator from [matlab-trajectory-sim](../matlab-trajectory-sim/README.md) through its waypoints, using only the four horizontal Multi-ranger readings to get round obstacles it has no map of. It is a separate path from `--demo`, which is unchanged.
+
+```bash
+/isaac-sim/python.sh /workspace/sim/build_mission_scene.py           # only if scenes/matlab_room.usd is missing or the mission changed
+/isaac-sim/python.sh /workspace/sim/run_sim.py --mode firmware_pid --mission matlab_main
+/isaac-sim/python.sh /workspace/sim/run_sim.py --mode ekf_closed_loop --mission matlab_main --noise on
+/isaac-sim/python.sh /workspace/sim/plot_mission.py /workspace/build/missions/matlab_main_firmware_pid.csv
+```
+
+```
+Multi-ranger (PhysX rays, rangers.py) ─┐
+state the PID sees (truth or EKF) ─────┼─> wedgebugStep()  50 Hz   apps/wedgebug/src/wedgebug.c (C, via cffirmware)
+                                       │      -> hover setpoint: body vx/vy, yaw rate, height
+                                       └─> controllerPid (velocity_body, yaw modeVelocity) -> motors
+```
+
+- **The navigator is firmware C code.** [apps/wedgebug/src/wedgebug.c](../apps/wedgebug/src/wedgebug.c) has no RTOS or driver dependencies, uses single-precision floats and fixed buffers, and is compiled into `cffirmware` (rebuild the bindings after editing it). On the drone, an app task would call `wedgebugStep()` with the estimator state and `rangeGet()` readings and send the output with `commanderSetSetpoint()`; that app wrapper is not written yet, and the core has not been compiled for the STM32.
+- `--navigator python` uses the reference port in [navigation/wedgebug.py](navigation/wedgebug.py) instead. Both are line-by-line ports of `navigator_step.m`.
+- **Sequence:** take off to `--target-z` above the mission start and settle for 1 s, navigate, then hold position at the goal. Headless runs exit when the drone holds at the goal.
+- **What the navigator sees:** ground truth in `firmware_pid` and `ekf_shadow`, the EKF estimate in `ekf_closed_loop`. Missions start the EKF at the mission start (`kalman.initialX/Y`); Flow/ToF still give no absolute XY, so expect position drift with `--noise on`.
+- **Rangers:** 9 rays across each 27 deg cone, 4 m range, 25 Hz, cast in 3-D from the true pose, so attitude tilts them. `--ranger-noise` adds Gaussian noise [m].
+- **Missions** live in [navigation/missions.py](navigation/missions.py): room, obstacles, start, waypoints, goal, scene file. `matlab_main` is `main.m` unchanged, in a 10 x 8 m room with its corner at the world origin. A new mission needs its scene built once with `build_mission_scene.py --mission NAME`; that script never writes `arena.usd`.
+- **CSV:** `build/missions/<mission>_<mode>.csv` adds navigator mode/phase/waypoint, the four ranges, and the commanded velocity and yaw rate to the usual firmware columns.
+
+Without Isaac Sim, the 2-D kinematic simulator reproduces the MATLAB results (matlab_main: goal at 65.8 s, closest gap 0.21 m) and compares the C and Python navigators:
+
+```bash
+python3 /workspace/sim/navigation/sim2d.py                     # Python reference; any Python 3 + numpy
+/isaac-sim/python.sh /workspace/sim/navigation/sim2d.py --backend firmware
+/isaac-sim/python.sh -m pytest /workspace/sim/tests/test_wedgebug.py
+```
 
 ### Logs and plots
 
