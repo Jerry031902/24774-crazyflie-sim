@@ -1,0 +1,21 @@
+{
+  "drone_id": null,
+  "battery_id": null,
+  "hardware": {
+    "board": "Crazyflie 2.1",
+    "propellers": "47-17",
+    "decks": ["Flow deck v2", "Multi-ranger deck"]
+  },
+  "mass_g": null,
+  "mass_readings_g": [],
+  "scale_resolution_g": null,
+  "height_uncertainty_m": null,
+  "surface": null,
+  "lighting": null,
+  "ambient_temperature_c": null,
+  "motor_propeller_condition": null,
+  "firmware_label": null,
+  "firmware_build_config": null,
+  "external_reference": null,
+  "notes": "Fill measured values; leave genuinely unknown values null. Known static sensor height is passed with --known-height-m."
+}

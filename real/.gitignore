@@ -1,0 +1,9 @@
+# Machine-specific TOC caches and Python environment.
+cache/
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+# Working session details are copied into each recorded meta.json.
+session.json
+# Keep selected baseline data/ runs eligible for explicit Git commits.

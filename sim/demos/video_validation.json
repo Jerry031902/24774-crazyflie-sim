@@ -1,0 +1,40 @@
+{
+  "telemetry_frames": 900,
+  "phase_frames": {
+    "takeoff": 300,
+    "hover": 300,
+    "move": 300
+  },
+  "videos": [
+    {
+      "file": "crazyflie_ekf_baseline_noise_off.mp4",
+      "decoded_frames": 900,
+      "duration_s": 30,
+      "codec": "H.264",
+      "pixel_format": "yuv420p",
+      "resolution": [
+        1920,
+        1080
+      ],
+      "fps": 30,
+      "audio": false,
+      "faststart": true,
+      "bytes": 3886375
+    },
+    {
+      "file": "crazyflie_ekf_baseline_noise_off_clean.mp4",
+      "decoded_frames": 900,
+      "duration_s": 30,
+      "codec": "H.264",
+      "pixel_format": "yuv420p",
+      "resolution": [
+        1920,
+        1080
+      ],
+      "fps": 30,
+      "audio": false,
+      "faststart": true,
+      "bytes": 6532100
+    }
+  ]
+}

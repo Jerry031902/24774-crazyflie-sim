@@ -1,13 +1,14 @@
 """Target sequence and CSV recording shared by GUI and headless firmware runs."""
 
 import csv
+import math
 from pathlib import Path
 
 import numpy as np
 
 from controllers.firmware_pid import rotation_and_rpy
 
-HOVER_HOLD_S = 10.0
+HOVER_HOLD_S = 10.0  # Comparison/recording default; run_sim.py supplies its own duration.
 MOVE_HOLD_S = 3.0
 POSITION_TOLERANCE_M = 0.03
 SPEED_TOLERANCE_M_S = 0.05
@@ -19,17 +20,20 @@ EKF_MOVE_SETTLE_S = 10.0
 
 
 class TimedHoverMoveDemo:
-    """10 s takeoff/settle, 10 s hover, 10 s move/settle, then hold final target."""
+    """Fixed takeoff/move windows and configurable hover; comparisons use 10 s."""
 
-    def __init__(self, target_z_m=1.0):
+    def __init__(self, target_z_m=1.0, hover_hold_s=HOVER_HOLD_S):
         self.target_z_m = target_z_m
+        self.hover_hold_s = float(hover_hold_s)
+        if not math.isfinite(self.hover_hold_s) or self.hover_hold_s <= 0:
+            raise ValueError("hover_hold_s must be positive and finite")
         self.reset()
 
     def reset(self):
         self.phase = "takeoff"
         self.done = False
         self.hover_start_s = EKF_TAKEOFF_SETTLE_S
-        self.move_time_s = self.hover_start_s + HOVER_HOLD_S
+        self.move_time_s = self.hover_start_s + self.hover_hold_s
         self.end_time_s = self.move_time_s + EKF_MOVE_SETTLE_S
 
     def target(self, state):
@@ -43,10 +47,13 @@ class TimedHoverMoveDemo:
 
 
 class HoverMoveDemo:
-    """Reach (0,0,z), hold continuously for 10 s, then reach (0.5,0,z)."""
+    """Reach (0,0,z), hold for hover_hold_s, then reach (0.5,0,z)."""
 
-    def __init__(self, target_z_m=1.0):
+    def __init__(self, target_z_m=1.0, hover_hold_s=HOVER_HOLD_S):
         self.target_z_m = target_z_m
+        self.hover_hold_s = float(hover_hold_s)
+        if not math.isfinite(self.hover_hold_s) or self.hover_hold_s <= 0:
+            raise ValueError("hover_hold_s must be positive and finite")
         self.reset()
 
     def reset(self):
@@ -67,7 +74,7 @@ class HoverMoveDemo:
                     self.stable_since = now
                     self.hover_start_s = now
                 self.phase = "hover"
-                if now - self.stable_since >= HOVER_HOLD_S:
+                if now - self.stable_since >= self.hover_hold_s:
                     self.phase = "move"
                     self.move_time_s = now
                     self.stable_since = None
@@ -120,6 +127,10 @@ class FlightLog:
         row["total_thrust_N"] = command["total_thrust_N"]
         row["yaw_torque_Nm"] = sum(command["motor_yaw_torques_Nm"])
         row["saturated"] = int(command["saturated"])
+        if "ranger" in state:
+            # Held uint16-mm readings with explicit validity and sample time.
+            # A new value is only acquired at 10 Hz, not once per CSV row.
+            row.update(state["ranger"])
         if "estimate" in command:
             est = command["estimate"]
             for prefix, data in (("est", est), ("controller_est", command["estimate_used"])):

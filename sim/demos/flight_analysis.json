@@ -1,0 +1,50 @@
+{
+  "stable": true,
+  "stability_checks": {
+    "completed_30_s": true,
+    "finite_states": true,
+    "no_EKF_resets": true,
+    "no_ground_contact": true,
+    "tilt_below_45_deg": true,
+    "hover_z_within_20_cm": true,
+    "hover_xy_within_50_cm": true,
+    "final_mean_target_error_below_50_cm": true,
+    "final_mean_speed_below_25_cm_s": true
+  },
+  "duration_s": 30.0,
+  "max_z_estimation_error_m": 0.10127413445685118,
+  "max_z_estimation_error_after_1s_m": 0.003779637870025665,
+  "hover_xy_estimation_drift_m": [
+    0.0,
+    0.0
+  ],
+  "hover_xy_true_drift_m": [
+    0.0,
+    0.0
+  ],
+  "max_hover_xy_estimation_error_m": 0.0,
+  "max_attitude_error_deg": 1.364624107138095,
+  "rms_attitude_error_deg": 0.10027257763601868,
+  "max_hover_z_tracking_error_m": 0.0187716,
+  "max_hover_xy_tracking_error_m": 0.0,
+  "takeoff_peak_z_m": 1.090993,
+  "final_true_position_m": [
+    0.5008993,
+    -1.1440226e-06,
+    0.99972945
+  ],
+  "final_estimated_position_m": [
+    0.5003432631492615,
+    -1.1588881534407847e-06,
+    0.9997285008430481
+  ],
+  "final_mean_tracking_error_m": 0.0009605613756512836,
+  "motor_saturated_steps": 0,
+  "ekf_resets": 0,
+  "physics_rows": 30001,
+  "reference_headless_max_position_difference_m": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  }
+}

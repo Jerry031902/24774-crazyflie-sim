@@ -1,0 +1,3 @@
+# API version inspected and exercised by the offline tests. Python >= 3.10.
+cflib==0.1.34
+cfclient==2026.8.1

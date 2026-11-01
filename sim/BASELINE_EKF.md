@@ -138,19 +138,21 @@ The worker runs after the controller in each 1 ms step, reflecting the stock
 copy-before-wakeup and task priorities. Both current worker estimates and the
 older estimates used by the controller are logged.
 
-Both modes use the same clock-based targets: takeoff/settle to (0,0,1) during
+The four-case comparison runner uses the same clock-based targets in both modes: takeoff/settle to (0,0,1) during
 t=0..10 s, hover during t=10..20 s, then move/settle at (0.5,0,1) until t=30 s.
 The GUI keeps holding afterward. This avoids using true position to decide when
 closed-loop waypoints switch, and avoids noisy estimates continuously resetting
-a settling timer. Existing modes retain their original behavior/demo.
+a settling timer. `run_sim.py --demo` now defaults to a shorter 5 s hover; add
+`--hover-seconds 10` to reproduce this comparison schedule. The comparison runner
+and recorder keep their original 10 s hover default.
 
 ## 5. Running and evaluating
 
 Host commands, using the existing development container:
 
 ```bash
-docker exec -it cf_sim_dev /isaac-sim/python.sh /workspace/sim/run_sim.py --mode ekf_shadow --demo --noise off
-docker exec -it cf_sim_dev /isaac-sim/python.sh /workspace/sim/run_sim.py --mode ekf_closed_loop --demo --noise on
+docker exec -it cf_sim_dev /isaac-sim/python.sh /workspace/sim/run_sim.py --mode ekf_shadow --demo --noise off --hover-seconds 10
+docker exec -it cf_sim_dev /isaac-sim/python.sh /workspace/sim/run_sim.py --mode ekf_closed_loop --demo --noise on --hover-seconds 10
 docker exec cf_sim_dev /isaac-sim/python.sh -m unittest discover -s /workspace/sim/tests -v
 docker exec cf_sim_dev /isaac-sim/python.sh /workspace/sim/tests/smoke_firmware_ekf.py
 ```
@@ -169,11 +171,12 @@ by floating-point roundoff and never influence measurement acceptance.
 Reports distinguish estimation error (estimate minus truth) from tracking error
 (truth minus target). Max Z estimation error includes startup, with an additional
 metric after 1 s. Hover XY estimation drift is the change in estimate-minus-truth
-error between the beginning/end of t=10..20 s; true hover drift and maximum XY
+error between the first/last samples marked `hover` (t=10..20 s in these original runs); true hover drift and maximum XY
 error are also recorded. Attitude error is quaternion angular distance, with both
 max and RMS, avoiding Euler wrapping artifacts.
 
-The predeclared smoke-test stability criteria are: complete 30 s, finite states,
+The predeclared smoke-test stability criteria are: complete the demo (30 s for
+this comparison; `phase=complete` in the CSV), finite states,
 no estimator resets or ground contact, |roll/pitch| <45 degrees, hover height
 within 0.2 m, hover XY within 0.5 m, final-three-second mean target error <0.5 m,
 and mean speed <0.25 m/s. Passing means bounded/stable baseline flight, not

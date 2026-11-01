@@ -36,6 +36,7 @@ RENDER_EVERY = 10
 PRINT_HZ = 10
 INITIAL_POSITION = (0.0, 0.0, 0.1)
 INITIAL_ORIENTATION_WXYZ = (1.0, 0.0, 0.0, 0.0)
+DEMO_HOVER_S = 5.0  # run_sim.py --demo; override with --hover-seconds.
 # v0.3 altitude-only feedback. Gains act on acceleration, independent of mass.
 TARGET_Z_M = 1.0
 ALTITUDE_KP = 6.0  # 1/s^2
@@ -53,6 +54,16 @@ CRAZYFLIE_USD_PATH = SIM_DIR / "assets" / "crazyflie" / "cf2x.usd"
 _body = None
 _body_com = None
 _motor_actuator = None
+_ranger = None
+
+
+def sample_ranger(state):
+    """Attach held range telemetry, without feeding it to the stock EKF/PID."""
+    if _ranger is None:
+        return []
+    packets = _ranger.sample(state)
+    state["ranger"] = _ranger.snapshot()
+    return packets
 
 
 def apply_thrust(total_thrust_N):
@@ -164,6 +175,8 @@ def reset_runtime(sim, controller):
     if not np.allclose(actual_inertia, np.diag(INERTIA_KGM2), rtol=1e-5, atol=1e-10):
         raise RuntimeError("PhysX inertia does not match INERTIA_KGM2")
     controller.reset()
+    if _ranger is not None:
+        _ranger.reset()
 
 
 def make_controller(mode, noise=False, seed=7):
@@ -187,9 +200,11 @@ def make_controller(mode, noise=False, seed=7):
     raise ValueError(f"Unknown mode: {mode}")
 
 
-def setup_simulation(mode, target_z_m=TARGET_Z_M, noise=False, seed=7):
+def setup_simulation(mode, target_z_m=TARGET_Z_M, noise=False, seed=7,
+                     ranger=False, ranger_noise=False):
     """Open the arena, reference the drone, and start fixed-step physics."""
-    global _body, _motor_actuator
+    global _body, _motor_actuator, _ranger
+    _ranger = None
     # All Isaac Sim/USD imports occur after main() has started SimulationApp.
     from isaacsim.core.api import SimulationContext
     from isaacsim.core.prims import RigidPrim
@@ -257,15 +272,23 @@ def setup_simulation(mode, target_z_m=TARGET_Z_M, noise=False, seed=7):
         device="cpu",
     )
     sim.get_physics_context().set_gravity(-GRAVITY_M_S2)
+    if ranger:
+        # Verified Isaac Sim 5.1 API; required for queries in headless runs too.
+        sim.get_physics_context().set_enable_scene_query_support(True)
     _body = RigidPrim(BODY_PRIM_PATH, name="crazyflie_body", reset_xform_properties=False)
     reset_runtime(sim, controller)
+    if ranger:
+        from ranger import MultiRanger, PhysXRaycaster
+        _ranger = MultiRanger(PhysXRaycaster((DRONE_PRIM_PATH,)), noise=ranger_noise, seed=seed)
+        print(f"Multi-ranger: {_ranger.settings()}", flush=True)
     if mode in MOTOR_MODES:
         _motor_actuator = MotorActuator(_body)
         print("Firmware PID: 1 kHz tick, position 100 Hz, attitude/rate 500 Hz; "
               f"gyro LPF {controller.gyro_filter_hz:g} Hz; 47-17 force model", flush=True)
     if mode in ("altitude_pid",) + MOTOR_MODES:
-        # Frame both the starting position and target height during the ascent.
-        set_camera_view(eye=[1.5, -1.5, max(1.2, target_z_m + 0.4)],
+        # Frame takeoff and hover from -X so the +X green pillar does not
+        # occlude the drone at the origin or during the demo's +X movement.
+        set_camera_view(eye=[-1.5, -1.5, max(1.2, target_z_m + 0.4)],
                         target=[0.0, 0.0, (INITIAL_POSITION[2] + target_z_m) / 2])
     else:
         set_camera_view(eye=[1.0, -1.0, 0.7], target=list(INITIAL_POSITION))
@@ -287,11 +310,20 @@ def main():
     parser.add_argument("--target-z", type=float, default=TARGET_Z_M, help="Target altitude in meters")
     parser.add_argument("--headless", action="store_true", help="Run without a window")
     parser.add_argument("--steps", type=int, default=0, help="Exit after N physics steps; 0 runs until closed")
-    parser.add_argument("--demo", action="store_true", help="Firmware PID: hover for 10 s, then move to X=0.5 m")
+    parser.add_argument("--demo", action="store_true", help="Firmware PID: takeoff, hover, then move to X=0.5 m")
+    parser.add_argument("--hover-seconds", type=float, default=DEMO_HOVER_S,
+                        help="Hover duration for --demo, in simulation seconds (default: %(default)s)")
     parser.add_argument("--csv", type=Path, help="Firmware PID flight log, one row per physics step")
     parser.add_argument("--noise", choices=("off", "on"), default="off", help="EKF simulated sensor noise")
-    parser.add_argument("--seed", type=int, default=7, help="EKF sensor noise seed")
+    parser.add_argument("--seed", type=int, default=7, help="Sensor noise seed; independent EKF and Ranger RNG streams")
+    parser.add_argument("--ranger", choices=("off", "on"), default="on",
+                        help="Five-direction geometric ranging, no avoidance (default: on)")
+    parser.add_argument("--ranger-noise", choices=("off", "on"), default="off",
+                        help="Independent Multi-ranger noise, separate from EKF --noise")
+    parser.add_argument("--ranger-csv", type=Path, help="10 Hz Ranger log; defaults beside flight CSV")
     args = parser.parse_args()
+    if not math.isfinite(args.hover_seconds) or args.hover_seconds <= 0:
+        parser.error("--hover-seconds must be positive and finite")
     if args.steps < 0:
         parser.error("--steps cannot be negative")
     if not math.isfinite(args.target_z) or args.target_z <= 0:
@@ -302,23 +334,37 @@ def main():
         parser.error("--noise on requires an EKF mode")
     if args.seed < 0:
         parser.error("--seed must be nonnegative")
+    if args.ranger == "off" and (args.ranger_csv or args.ranger_noise == "on"):
+        parser.error("--ranger-csv and --ranger-noise on require --ranger on")
 
     from isaacsim import SimulationApp
 
     app = SimulationApp({"headless": args.headless})  # False by default.
-    logger = None
+    logger = ranger_logger = None
     try:
-        sim, controller = setup_simulation(args.mode, args.target_z, noise=args.noise == "on", seed=args.seed)
+        sim, controller = setup_simulation(args.mode, args.target_z, noise=args.noise == "on", seed=args.seed,
+                                           ranger=args.ranger == "on", ranger_noise=args.ranger_noise == "on")
         demo = None
+        csv_path = None
         if args.demo or args.csv:
             from flight_demo import FlightLog, HoverMoveDemo, TimedHoverMoveDemo
             demo_type = TimedHoverMoveDemo if args.mode in EKF_MODES else HoverMoveDemo
-            demo = demo_type(args.target_z) if args.demo else None
-            default_csv = (f"build/ekf_baseline/{args.mode}_noise_{args.noise}.csv"
+            demo = demo_type(args.target_z, hover_hold_s=args.hover_seconds) if args.demo else None
+            default_csv = (f"build/demo_live/{args.mode}_noise_{args.noise}.csv"
                            if args.mode in EKF_MODES else "build/firmware_pid/demo.csv")
             csv_path = args.csv or SIM_DIR.parent / default_csv
             logger = FlightLog(csv_path)
             print(f"Flight CSV: {csv_path}", flush=True)
+        if _ranger is not None:
+            from ranger import RangerLog
+            ranger_path = args.ranger_csv or (csv_path.with_suffix(".ranger.csv") if csv_path else
+                                             SIM_DIR.parent / "build/demo_live" / f"{args.mode}.ranger.csv")
+            if csv_path is not None and ranger_path.resolve() in (
+                csv_path.resolve(), csv_path.with_suffix(".measurements.csv").resolve()
+            ):
+                raise ValueError("Ranger CSV must differ from flight and EKF measurement CSV paths")
+            ranger_logger = RangerLog(ranger_path, _ranger)
+            print(f"Ranger CSV: {ranger_path}", flush=True)
         target = {"position_m": (INITIAL_POSITION[0], INITIAL_POSITION[1], args.target_z)}
         print_every = round(1.0 / (PRINT_HZ * PHYSICS_DT))
         steps = 0
@@ -330,6 +376,8 @@ def main():
                 sim.render()
                 continue
             if needs_reset:
+                if ranger_logger is not None:
+                    ranger_logger.close()  # Persist counts before sensor reset.
                 reset_runtime(sim, controller)
                 steps = 0
                 needs_reset = False
@@ -338,8 +386,13 @@ def main():
                 if logger is not None:
                     logger.close()
                     logger = FlightLog(csv_path)  # A fresh CSV for the restarted episode.
+                if ranger_logger is not None:
+                    ranger_logger = RangerLog(ranger_path, _ranger)
 
             state = read_state(steps * PHYSICS_DT)
+            ranger_packets = sample_ranger(state)
+            if ranger_logger is not None:
+                ranger_logger.write(ranger_packets)
             if demo is not None:
                 target = demo.target(state)
             command = controller.compute(state, target)
@@ -354,6 +407,10 @@ def main():
                 vz = state["linear_velocity_m_s"][2]
                 print(f"t={state['time_s']:.3f} s  position=({x:.5f}, {y:.5f}, {z:.5f}) m  "
                       f"vz={vz:.4f} m/s  thrust={command['total_thrust_N']:.5f} N", flush=True)
+                if _ranger is not None and _ranger.latest is not None:
+                    values = " ".join(f"{r['direction']}={r['range_mm'] if r['valid'] else 'invalid'}"
+                                      for r in _ranger.latest)
+                    print(f"Ranger [mm] sample t={_ranger.latest[0]['sample_time_s']:.3f}: {values}", flush=True)
             if steps % RENDER_EVERY == 0:
                 sim.render()  # UI/render update only, with physics disabled.
             if args.steps and steps >= args.steps:
@@ -362,8 +419,9 @@ def main():
                 if demo.done:
                     print("FIRMWARE_DEMO_COMPLETE", flush=True)
                     break
-                if steps * PHYSICS_DT >= 40.0:
-                    raise RuntimeError("Firmware demo did not complete within 40 simulation seconds")
+                timeout_s = args.hover_seconds + 30.0
+                if steps * PHYSICS_DT >= timeout_s:
+                    raise RuntimeError(f"Firmware demo did not complete within {timeout_s:g} simulation seconds")
         if app.is_running():
             sim.stop()
     except KeyboardInterrupt:
@@ -379,6 +437,8 @@ def main():
     finally:
         if logger is not None:
             logger.close()
+        if ranger_logger is not None:
+            ranger_logger.close()
         app.close()
 
 

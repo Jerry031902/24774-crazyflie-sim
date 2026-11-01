@@ -1,0 +1,49 @@
+{
+  "mode": "ekf_closed_loop",
+  "noise": "off",
+  "seed": 7,
+  "fps": 30,
+  "duration_s": 30.0,
+  "frames": 900,
+  "resolution": [
+    1920,
+    1080
+  ],
+  "physics_dt_s": 0.001,
+  "physics_end_s": 30.001,
+  "mass_kg": 0.03,
+  "inertia_kg_m2": [
+    1.6572e-05,
+    1.6656e-05,
+    2.9262e-05
+  ],
+  "camera_eye": [
+    -0.55,
+    -1.8,
+    1.15
+  ],
+  "camera_target": [
+    0.22,
+    0.0,
+    0.57
+  ],
+  "final_position_m": [
+    0.5008993744850159,
+    -1.0539396271269652e-06,
+    0.9997295141220093
+  ],
+  "ekf_resets": 0,
+  "limitations": [
+    "Mass and inertia are placeholders.",
+    "Propellers are visual-only.",
+    "Flow/ToF use analytical models, not rendered images/raycasting.",
+    "No custom NIS gate, LQR, avoidance or emergency braking."
+  ],
+  "timing": "30 fps at 1x simulation time, each frame sampled to nearest 1 ms physics tick.",
+  "video_file": "crazyflie_ekf_baseline_noise_off.mp4",
+  "clean_video_file": "crazyflie_ekf_baseline_noise_off_clean.mp4",
+  "clean_video_bytes": 6532100,
+  "video_bytes": 3886375,
+  "encoding": "H.264, 1920x1080, 30 fps, yuv420p, faststart, no audio",
+  "presentation": "White background, Arial-compatible Liberation Sans, CMU red #BB0A30."
+}

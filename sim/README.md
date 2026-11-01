@@ -23,7 +23,8 @@ PhysX true state
 
 - **PhysX** computes the drone motion. The drone is one rigid body. Propellers are visual only.
 - **Firmware C code** (controller, mixer, EKF core) is compiled from this repo into `cffirmware`. The simulator calls these routines, not the complete RTOS firmware or hardware drivers. The physics/main loop is 1 kHz; individual routines and sensors run at their firmware rates.
-- **Sensors** are generated from ground truth using the same measurement models the firmware EKF uses, plus optional noise and delay.
+- **IMU/Flow/ToF measurements** are generated from ground truth using the same measurement models the firmware EKF uses, plus optional noise and delay.
+- **Multi-ranger** uses five body-fixed PhysX rays at nominal 10 Hz. It provides range telemetry separately from the EKF/PID; no avoidance is enabled. See [RANGER.md](RANGER.md) for assumptions, configuration, logs, and validation.
 
 The PID uses the previous completed EKF output. The EKF worker then processes the current measurements, matching the stock copy-before-wakeup ordering. [BASELINE_EKF.md](BASELINE_EKF.md#1-stock-order-and-rates) documents the exact order and source lines.
 
@@ -43,6 +44,8 @@ Shared C algorithms can be tested in sim and reused on hardware after adding the
     ├── build_scene.py            generates scenes/arena.usd
     ├── run_sim.py                main entry point
     ├── sensors.py                IMU / Flow / ToF models
+    ├── ranger.py                 Multi-ranger rays, timing, optional noise/delay, CSV
+    ├── plot_ranger.py            plot delivered ranges and geometric distances
     ├── actuators.py              motor command -> force/torque
     ├── assets/crazyflie/          bundled local drone USD and schema layer
     ├── scenes/arena.usd          walls + obstacles (no drone)
@@ -62,7 +65,7 @@ Shared C algorithms can be tested in sim and reused on hardware after adding the
 | Control board | Crazyflie 2.1 |
 | Propellers | **47-17** (the Crazyflie 2.1+ propellers). Matches default `cf2_defconfig`. |
 | Flow deck | **v2** (PMW3901 + VL53L1x ToF) |
-| Ranger deck | On the real drone. **Not simulated yet.** |
+| Ranger deck | Five-direction raycast model. Optical origins and noise still need calibration; see [RANGER.md](RANGER.md). |
 
 **This baseline assumes 47-17 propellers.** `cf2_defconfig` selects CF2; the defaults in [Kconfig](../Kconfig) select `CONFIG_CRAZYFLIE_21_PLUS` and battery thrust compensation. The [actuator model](actuators.py) checks those settings and uses the corresponding parameters from [platform_defaults_cf2.h](../src/platform/interface/platform_defaults_cf2.h). Different propellers require matching firmware settings and actuator parameters; the current model is not calibrated for them.
 
@@ -231,34 +234,51 @@ All commands below run **inside the container**, unless labeled host. GUI is the
 | `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode free_fall` | No thrust: drone drops and rests |
 | `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode hover_ff` | Constant total thrust = m·g; no position feedback |
 | `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode altitude_pid --target-z 1.0` | Explicit Python altitude-only PID |
-| `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode firmware_pid --demo` | Firmware PID on ground truth: takeoff, 10 s settled hover, move to x = 0.5 m |
+| `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode firmware_pid --demo` | Firmware PID on ground truth: takeoff, 5 s settled hover, move to x = 0.5 m |
 | `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode ekf_shadow --demo --noise off` | Ground-truth PID; stock EKF runs alongside and does not control flight |
 | `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode ekf_closed_loop --demo --noise off` | Simulated sensors -> stock EKF -> firmware PID |
 
 For either EKF mode, use `--noise on` to add simulated sensor noise; `--noise off` is the default. `--seed 7` selects the default repeatable noise realization. Noise-off retains the firmware filters, process noise, and measurement covariance. `--noise on` is rejected in non-EKF modes.
 
-The EKF demos use a fixed schedule: 0-10 s takeoff/settle, 10-20 s hover, 20-30 s move/settle to (0.5, 0, 1). The ground-truth firmware demo instead switches phases after meeting position/speed tolerances. GUI demos continue holding the final target; `--headless --demo` exits when the demo completes. `--steps N` bounds any mode by physics steps; 1000 steps represent 1 simulation second, not necessarily 1 wall-clock second.
+`run_sim.py` enables Multi-ranger in every mode by default (`--ranger on`). Turn it off with `--ranger off`. Its independent `--ranger-noise on` switch adds Ranger noise; `--noise` continues to control only IMU/Flow/ToF. Ranger readings are printed in mm and saved at nominal 10 Hz. No controller uses them yet. The historical comparison/recording runners retain their previous configuration; use the dedicated Ranger runner below for sensing tests.
+
+The EKF modes with `run_sim.py --demo` default to 0-10 s takeoff/settle, 10-15 s hover, then 15-25 s move/settle to (0.5, 0, 1). Change the hover duration with `--hover-seconds 5` or edit `DEMO_HOVER_S` near the top of `run_sim.py`. Takeoff/move windows are `EKF_TAKEOFF_SETTLE_S` / `EKF_MOVE_SETTLE_S` in `flight_demo.py`.
+
+The four-case comparison runner (`tests/smoke_firmware_ekf.py`) and video recorder retain the original 10 s hover default from `HOVER_HOLD_S` in `flight_demo.py`, giving the original 0-10 / 10-20 / 20-30 s schedule. `plot_ekf.py` reads phase boundaries from each CSV, so both schedules are supported. Compare drift only over matched hover durations.
+
+The ground-truth firmware demo instead switches phases after meeting position/speed tolerances. GUI demos continue holding the final target; `--headless --demo` exits when the demo completes. `--steps N` bounds any mode by physics steps; 1000 steps represent 1 simulation second, not necessarily 1 wall-clock second.
 
 ### Logs and plots
 
-`run_sim.py` writes CSV only when `--demo` or `--csv PATH` is supplied; both options require a firmware controller mode. Default paths, relative to the repo root:
+`run_sim.py` writes a **flight CSV** when `--demo` or `--csv PATH` is supplied; both options require a firmware controller mode. Ranger has a separate CSV in all modes when enabled. Default flight paths, relative to the repo root:
 
 | Mode | `--demo` output |
 |---|---|
 | `firmware_pid` | `build/firmware_pid/demo.csv` |
-| `ekf_shadow` | `build/ekf_baseline/ekf_shadow_noise_off.csv` (or `_on.csv`) |
-| `ekf_closed_loop` | `build/ekf_baseline/ekf_closed_loop_noise_off.csv` (or `_on.csv`) |
+| `ekf_shadow` | `build/demo_live/ekf_shadow_noise_off.csv` (or `_on.csv`) |
+| `ekf_closed_loop` | `build/demo_live/ekf_closed_loop_noise_off.csv` (or `_on.csv`) |
 
-EKF runs also write a sibling `.measurements.csv`. Existing files at the chosen paths are overwritten on a new run or Stop/Play reset. Choose `--csv` for separate experiments. `run_sim.py` does **not** automatically create plots or JSON reports.
+The comparison runner still writes to `build/ekf_baseline/`; live demos use `build/demo_live/` to avoid replacing those four comparison runs. EKF runs also write a sibling `.measurements.csv`. Existing files at the chosen paths are overwritten on a new run or Stop/Play reset. Choose `--csv` for separate experiments. `run_sim.py` does **not** automatically create plots or flight-analysis reports.
+
+With Ranger enabled, `flight.csv` also produces `flight.ranger.csv` and `flight.ranger.json` (model settings/counts). Without a flight CSV, defaults are `build/demo_live/<mode>.ranger.csv` and `.ranger.json`. Override with `--ranger-csv PATH`. The full-rate flight CSV holds the latest `range.front/back/left/right/up` in mm, explicit validity flags, and Ranger sample/delivery timestamps. The separate Ranger CSV records only delivered samples, including the hit collider and ray pose. Invalid `32767` is not a measured 32.767 m distance.
 
 After the corresponding demo has finished and its CSV has closed:
 
 ```bash
 /isaac-sim/python.sh /workspace/sim/plot_flight.py /workspace/build/firmware_pid/demo.csv
-/isaac-sim/python.sh /workspace/sim/plot_ekf.py /workspace/build/ekf_baseline/ekf_closed_loop_noise_off.csv
+/isaac-sim/python.sh /workspace/sim/plot_ekf.py /workspace/build/demo_live/ekf_closed_loop_noise_off.csv
+/isaac-sim/python.sh /workspace/sim/plot_ranger.py /workspace/build/demo_live/ekf_closed_loop_noise_off.ranger.csv
 ```
 
 Each plot script writes a sibling `.png`; `plot_ekf.py` also prints metrics to stdout and requires the sibling measurement CSV.
+
+For live geometry checks plus two 25 s Ranger demo runs and a flight-regression reference (0-10 s takeoff, 10-15 s hover, move at 15 s):
+
+```bash
+/isaac-sim/python.sh /workspace/sim/tests/smoke_ranger.py --output-dir /workspace/build/ranger_validation
+```
+
+This checks walls/pillars, yaw/pitch transforms, optical offsets, self filtering, no-return handling, noise, and identical noisy EKF/PID flight with Ranger enabled/disabled. `--geometry-only` runs just the geometric checks. [RANGER.md](RANGER.md) describes the current model's limits.
 
 For all four matched EKF runs (shadow/closed-loop, noise off/on), with CSVs, plots, per-run JSON, and `summary.json` generated together:
 
@@ -339,7 +359,7 @@ Recommended workflow for anything that will fly on the real drone:
 | Battery voltage compensation | Firmware config enables it, but the simulation does not run the voltage-to-PWM stage. The adapter converts the pre-compensation force command directly to N. | Battery/motor model if needed |
 | Flow / ToF geometry | Stock measurement models on a flat floor; no camera images or scene raycasts, no texture failure/dropout model | Scene-dependent sensing if needed |
 | EKF observability | Flow/ToF provide no absolute XY or yaw reference; noise-on position drift is expected | External reference only if available on the real system |
-| Ranger deck (horizontal ToF) | Not simulated | Raycast model (to do) |
+| Ranger deck | Five single rays, 10 Hz, up to 4 m; default origins co-located at body origin | Measured optical origins/noise; FOV and surface-dependent validity model if needed |
 | Aerodynamics (drag, ground effect) | No explicit model | Identify from real logs if needed |
 
 These are idealized baseline results, not a validated prediction of real-flight accuracy. The complete arming/watchdog/emergency state machines are not simulated. See [BASELINE_EKF.md](BASELINE_EKF.md) for measurement assumptions and the actual stability criteria.

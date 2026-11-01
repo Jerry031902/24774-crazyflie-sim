@@ -9,6 +9,15 @@ def load(csv_path):
     return np.atleast_1d(np.genfromtxt(csv_path, delimiter=",", names=True, dtype=None, encoding="utf-8"))
 
 
+def phase_interval(data, phase):
+    """Read phase boundaries from this CSV, for both old and new schedules."""
+    indices = np.flatnonzero(data["phase"] == phase)
+    if not len(indices):
+        return None
+    end = min(int(indices[-1]) + 1, len(data) - 1)
+    return float(data["time_s"][indices[0]]), float(data["time_s"][end])
+
+
 def analyze(csv_path):
     d = load(csv_path)
     true = np.column_stack([d[f"{a}_m"] for a in "xyz"])
@@ -21,12 +30,12 @@ def analyze(csv_path):
     final_window = d["time_s"] >= d["time_s"][-1]-3
     tracking = true - target
     angles = np.column_stack([d["roll_deg"], d["pitch_legacy_deg"]])
-    complete = d["time_s"][-1] >= 30
+    complete = bool(np.any(d["phase"] == "complete"))
     finite = bool(np.isfinite(true).all() and np.isfinite(est).all() and np.isfinite(d["attitude_error_deg"]).all())
     hover_z = float(np.max(np.abs(tracking[hover, 2]))) if np.any(hover) else float("inf")
     hover_xy = float(np.max(np.linalg.norm(tracking[hover, :2], axis=1))) if np.any(hover) else float("inf")
     final_error = float(np.linalg.norm(np.mean(tracking[final_window], axis=0)))
-    criteria = {"completed_30_s": bool(complete), "finite_states": finite,
+    criteria = {"completed_demo": complete, "finite_states": finite,
                 "no_EKF_resets": bool(np.max(d["ekf_reset_count"]) == 0),
                 "no_ground_contact": bool(np.min(true[:, 2]) > .03),
                 "tilt_below_45_deg": bool(np.max(np.abs(angles)) < 45),
@@ -47,7 +56,7 @@ def analyze(csv_path):
             "rms_attitude_error_deg": float(np.sqrt(np.mean(d["attitude_error_deg"]**2))),
             "max_hover_z_tracking_error_m": hover_z,
             "max_hover_xy_tracking_error_m": hover_xy,
-            "takeoff_peak_z_m": float(np.max(true[d["time_s"] < 10, 2])),
+            "takeoff_peak_z_m": float(np.max(true[d["phase"] == "takeoff", 2])),
             "final_true_position_m": true[-1].tolist(), "final_estimated_position_m": est[-1].tolist(),
             "final_mean_tracking_error_m": final_error,
             "motor_saturated_steps": int(np.sum(d["saturated"])),
@@ -79,12 +88,18 @@ def plot_ekf(csv_path):
         selected = packets[packets["sensor"] == sensor]
         axes[3, j].plot(selected["time_s"], selected[f"innovation_{component}"], linewidth=.55, label="measurement - prediction")
         axes[3, j].set(title=label, ylabel="pixels" if sensor == "flow" else "m", xlabel="Simulation time [s]")
+    hover_interval = phase_interval(d, "hover")
+    move_interval = phase_interval(d, "move")
     for ax in axes.flat:
-        ax.axvspan(10, 20, color="#34a853", alpha=.07)
-        ax.axvline(20, color="0.4", linestyle=":", linewidth=.8)
+        if hover_interval is not None:
+            ax.axvspan(*hover_interval, color="#34a853", alpha=.07)
+        if move_interval is not None:
+            ax.axvline(move_interval[0], color="0.4", linestyle=":", linewidth=.8)
         ax.grid(alpha=.2)
         ax.legend(fontsize=7, loc="best")
-    fig.suptitle(f"{csv_path.stem} | stock EKF | shaded: 10 s hover | dotted: move to X=0.5 m")
+    hover_label = (f"hover {hover_interval[0]:g}-{hover_interval[1]:g} s"
+                   if hover_interval is not None else "no hover samples")
+    fig.suptitle(f"{csv_path.stem} | stock EKF | shaded: {hover_label} | dotted: move command")
     output = csv_path.with_suffix(".png")
     fig.savefig(output, dpi=140)
     plt.close(fig)
