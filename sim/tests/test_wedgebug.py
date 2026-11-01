@@ -51,10 +51,25 @@ def sideways_speed(log):
 class RangerTests(unittest.TestCase):
     def test_rangers_see_walls_and_obstacles(self):
         p = default_params()
-        p.ranger.fov = 0
+        p.ranger.fov, p.ranger.offset, p.ranger.resolution = 0, 0, 0  # exact centre-ray geometry
         env = room(obstacle_rect((5, 4), (1, 1)))
         np.testing.assert_allclose(read_rangers((3, 4), 0, env, p), [1.5, 4, 3, 4], atol=1e-12)
         np.testing.assert_allclose(read_rangers((3, 4), math.pi / 2, env, p), [4, 3, 4, 1.5], atol=1e-12)
+
+    def test_sensor_faces_and_whole_millimetres(self):
+        # Multi-ranger datasheet: faces 16.25 mm (front/back) and 16.3 mm (left/right) from the centre.
+        p = default_params()
+        p.ranger.fov = 0
+        env = room(obstacle_rect((5, 4), (1, 1)))
+        np.testing.assert_allclose(read_rangers((3, 4), 0, env, p), [1.484, 3.984, 2.984, 3.984], atol=1e-9)
+
+    def test_readings_arrive_one_driver_period_late(self):
+        p = default_params()
+        log, _ = fly(room(), (1, 4), (2, 4), p=p)
+        ticks = round(p.ranger.latency / p.dt)
+        self.assertTrue(np.all(np.isinf(log["ranges"][:ticks])))
+        expected = read_rangers(log["x"][0, 0:2], log["psi"][0], room(), p)
+        np.testing.assert_allclose(log["ranges"][ticks], expected)
 
     def test_cone_sees_block_off_the_centre_line(self):
         p = default_params()
@@ -66,7 +81,7 @@ class RangerTests(unittest.TestCase):
 
 class NavigationTests(unittest.TestCase):
     def test_matlab_main_mission_matches_matlab_results(self):
-        # matlab-trajectory-sim/README.md, 0 cm noise: 65.8 s, closest gap 0.21 m.
+        # matlab-trajectory-sim/README.md, 0 cm noise: 70.9 s, closest gap 0.11 m.
         for backend in BACKENDS:
             with self.subTest(backend=backend):
                 env = MATLAB_MAIN.environment()
@@ -74,8 +89,8 @@ class NavigationTests(unittest.TestCase):
                 self.assertTrue(m["arrived"])
                 self.assertFalse(m["collided"])
                 self.assertEqual(m["targets_reached"], 4)
-                self.assertAlmostEqual(m["t_finish"], 65.8, delta=0.1)
-                self.assertAlmostEqual(m["min_clearance"], 0.21, delta=0.01)
+                self.assertAlmostEqual(m["t_finish"], 70.9, delta=0.1)
+                self.assertAlmostEqual(m["min_clearance"], 0.107, delta=0.01)
 
     def test_open_room_flies_straight_line(self):
         a, b = np.array([1, 1]), np.array([8.5, 6.5])

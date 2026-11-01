@@ -73,13 +73,16 @@ def run_simulation(start, waypoints, goal, env, p, backend="python"):
     gust = np.zeros(2)
     tau_g = 2.0
     next_read = 0.0
-    ranges = np.full(4, np.inf)
+    pending = []                   # (delivery time, ranges) measured but not yet read
+    ranges = np.full(4, np.inf)    # nothing delivered yet
     arrived = collided = False
     t_arrive = t_collide = math.nan
     for k in range(n):
         if t[k] >= next_read - 1e-9:
-            ranges = read_rangers(x[0:2], psi, env, p, rng)
+            pending.append((t[k] + p.ranger.latency, read_rangers(x[0:2], psi, env, p, rng)))
             next_read += p.ranger.period
+        while pending and pending[0][0] <= t[k] + 1e-9:
+            ranges = pending.pop(0)[1]
         u_body, yaw_rate = nav.step(x, psi, ranges, t[k])
         wind = np.asarray(p.wind, dtype=float) + gust
         cols["x"][k], cols["psi"][k], cols["ranges"][k] = x, psi, ranges

@@ -91,7 +91,14 @@ dp/dt = v + wind
 dpsi/dt = r                      |r| <= yaw_rate_max
 ```
 
-**Rangers.** Each VL53L1x is modelled as a 27° cone of rays (`p.ranger.fov`, `n_rays`). It reports the nearest hit within `range_max = 4 m`, and `Inf` when nothing is in range, refreshed every `p.ranger.period`. The room walls are visible to the sensors. With `fov = 0` each sensor is a single centre ray, which can miss a corner that is within the drone's own width.
+**Rangers.** The model follows the real [Multi-ranger deck](https://www.bitcraze.io/products/multi-ranger-deck/) and its stock firmware driver (`src/deck/drivers/src/multiranger.c`). The Isaac Sim deck (`sim/ranger.py`) uses the same model in 3-D.
+
+- **Field of view:** each VL53L1x is a 27° cone of rays (`p.ranger.fov`, `n_rays`), the sensor's full field of view, which the driver never narrows. It reports the nearest hit within `range_max = 4 m`, and `Inf` when nothing is in range.
+- **Sensor position:** rays start at the sensor face, `p.ranger.offset` ahead of the body centre (16.25 mm front/back, 16.3 mm left/right, from the deck drawing), so readings are that much shorter than the centre's distance.
+- **Timing:** the driver reads every sensor every 100 ms (`p.ranger.period`), one period after starting that measurement (`p.ranger.latency`). Each reading is therefore 100 ms old when the navigator gets it and is held until the next one; before the first, the navigator sees `Inf`.
+- **Resolution:** readings are whole millimetres (`p.ranger.resolution`).
+
+The deck's fifth (up) sensor is not modelled in 2-D. The room walls are visible to the sensors. With `fov = 0` each sensor is a single centre ray, which can miss a corner that is within the drone's own width.
 
 **Noise.** Each reading that hits something gets zero-mean Gaussian noise with standard deviation `p.ranger.noise + p.ranger.noise_rel × range`, drawn independently for each sensor and each update. Both terms are 0 by default. To fly the main run with noise, uncomment the `p.ranger.noise` line at the top of `main.m`.
 
@@ -99,7 +106,7 @@ dpsi/dt = r                      |r| <= yaw_rate_max
 
 `noise_study(start, waypoints, goal, obstacles, p)` flies one mission 10 times at each noise level, 0, 1, 2, 5, 10 and 20 cm std dev, with a different random seed for each run. It prints a summary and plots outcome, closest approach, time to goal and sweeps against the noise level. The last section of `main.m` runs it on the mission defined there.
 
-Results for the current mission:
+Results for the current mission. With the hardware ranger timing and sensor positions, the 0 cm run takes 70.9 s with a closest gap of 0.11 m (2-D Python port, which matches MATLAB exactly without noise). The table below was measured with the previous ranger model (25 Hz, no delay, sensors at the body centre); rerun `noise_study` to refresh it.
 
 | Noise (std dev) | Succeeded | Collided | Closest gap, worst run | Time to goal, median |
 |---|---|---|---|---|

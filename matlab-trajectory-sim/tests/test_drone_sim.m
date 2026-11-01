@@ -57,12 +57,34 @@ end
 
 function testRangersSeeWallsAndObstacles(tc)
 p = tc.TestData.p;
-p.ranger.fov = 0;   % single centre ray: exact distances
+p.ranger.fov = 0;          % single centre ray from the body centre: exact distances
+p.ranger.offset = 0;
+p.ranger.resolution = 0;
 env = make_environment(p, {obstacle_rect([5 4], [1 1])});
 r = read_rangers([3; 4], 0, env, p);
 verifyEqual(tc, r, [1.5; 4; 3; 4], 'AbsTol', 1e-12);       % box ahead, room walls elsewhere
 r = read_rangers([3; 4], pi/2, env, p);                    % yawed 90 deg: front now faces +y
 verifyEqual(tc, r, [4; 3; 4; 1.5], 'AbsTol', 1e-12);
+end
+
+function testRangerSensorFacesAndMillimetres(tc)
+% Datasheet drawing: faces 16.25 mm (front/back) and 16.3 mm (left/right)
+% from the centre; the driver reports whole millimetres.
+p = tc.TestData.p;
+p.ranger.fov = 0;
+env = make_environment(p, {obstacle_rect([5 4], [1 1])});
+r = read_rangers([3; 4], 0, env, p);
+verifyEqual(tc, r, [1.484; 3.984; 2.984; 3.984], 'AbsTol', 1e-9);
+end
+
+function testRangerReadingsArriveOnePeriodLate(tc)
+% The driver reads each result 100 ms after starting that measurement.
+p = tc.TestData.p;
+env = make_environment(p, {});
+sim_log = run_simulation([1 4], [], [2 4], env, p);
+ticks = round(p.ranger.latency / p.dt);
+verifyTrue(tc, all(isinf(sim_log.ranges(1:ticks, :)), 'all'));
+verifyEqual(tc, sim_log.ranges(ticks + 1, :)', read_rangers(sim_log.x(1, 1:2)', sim_log.psi(1), env, p), 'AbsTol', 1e-12);
 end
 
 function testRangerMaxRangeAndCone(tc)
@@ -71,7 +93,7 @@ env = make_environment(p, {obstacle_rect([5 4.2], [0.2 0.2])});   % small block 
 p.ranger.fov = 0;
 r = read_rangers([2; 4], 0, env, p);
 verifyTrue(tc, isinf(r(1)));               % centre ray misses the block; the far wall is beyond 4 m
-verifyEqual(tc, r(3), 2, 'AbsTol', 1e-12);
+verifyEqual(tc, r(3), 1.984, 'AbsTol', 1e-9);   % back wall 2 m from the centre, 16.25 mm less from the face
 p.ranger.range_max = 1.5;
 r = read_rangers([2; 4], 0, env, p);
 verifyTrue(tc, isinf(r(3)));               % the back wall at 2 m is now out of range
@@ -84,6 +106,7 @@ function testRangerNoise(tc)
 % Gaussian noise: unbiased, with the std dev asked for; no return stays no return.
 p = tc.TestData.p;
 p.ranger.fov = 0;
+p.ranger.offset = 0;
 p.ranger.noise = 0.05;
 env = make_environment(p, {obstacle_rect([5 4], [1 1])});
 rng(3);

@@ -30,12 +30,17 @@ def default_params():
     p.wind = (0.0, 0.0)       # constant wind drift [m/s]
     p.wind_gust = 0.0         # std dev of random gusts [m/s], 0 = off
 
-    # Multi-ranger deck: VL53L1x time-of-flight sensors facing front, left, back, right
+    # Multi-ranger deck: VL53L1x time-of-flight sensors facing front, left, back,
+    # right (the up sensor is not modelled in 2-D). Bitcraze product page and
+    # datasheet, ST VL53L1X datasheet, firmware src/deck/drivers/src/multiranger.c.
     p.ranger = SimpleNamespace(
         range_max=4.0,              # beyond this: no return (inf) [m]
-        fov=math.radians(27),       # cone width; 0 = a single centre ray [rad]
+        fov=math.radians(27),       # full cone width at the default ROI; 0 = a single centre ray [rad]
         n_rays=9,                   # rays cast across the cone; the nearest hit is reported
-        period=0.04,                # update period [s]
+        period=0.1,                 # the driver reads every sensor every 100 ms [s]
+        latency=0.1,                # ...one period after that measurement started [s]
+        offset=(0.01625, 0.0163, 0.01625, 0.0163),  # sensor face ahead of the body centre: front, left, back, right [m]
+        resolution=0.001,           # the driver reports whole millimetres [m]
         noise=0.0,                  # Gaussian range noise: std dev [m]...
         noise_rel=0.0,              # ...plus this fraction of the range [-]
     )

@@ -12,8 +12,8 @@ from types import SimpleNamespace
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from ranger import (MultiRanger, PhysXRaycaster, RangerLog, RayHit,
-                    RANGER_DIRECTIONS_BODY, RANGER_INVALID_MM)
+from ranger import (MultiRanger, PhysXRaycaster, RangerLog, RayHit, RANGER_DIRECTIONS_BODY,
+                    RANGER_INVALID_MM, RANGER_ORIGINS_BODY_M, RANGER_PERIOD_MS)
 
 
 def truth(ms, q=(1., 0., 0., 0.), position=(0., 0., 1.)):
@@ -45,7 +45,7 @@ class RangerTests(unittest.TestCase):
             calls.append((origin.copy(), direction.copy()))
             return RayHit(1.2344, "/Wall")
         origins = {name: (.1, 0, .02) for name in RANGER_DIRECTIONS_BODY}
-        sensor = MultiRanger(cast, origins_body_m=origins)
+        sensor = MultiRanger(cast, origins_body_m=origins, fov_rad=0)
         rows = sensor.measure(truth(100, q=(math.sqrt(.5), 0, 0, math.sqrt(.5))))
         np.testing.assert_allclose(calls[0][0], (0, .1, 1.02), atol=1e-12)
         np.testing.assert_allclose(calls[0][1], (0, 1, 0), atol=1e-12)
@@ -54,23 +54,53 @@ class RangerTests(unittest.TestCase):
         tilted = sensor.measure(truth(200, q=(math.sqrt(.5), 0, math.sqrt(.5), 0)))
         np.testing.assert_allclose([tilted[0][f"direction_{a}"] for a in "xyz"], (0, 0, -1), atol=1e-12)
 
+    def test_cone_reports_nearest_hit_off_the_centre_line(self):
+        # A post 10 deg left of the nose at 2 m, a wall straight ahead at 3 m.
+        def cast(origin, direction, distance):
+            yaw = math.degrees(math.atan2(direction[1], direction[0]))
+            if abs(direction[2]) < 1e-9 and 9 < yaw < 11:
+                return RayHit(2, "/Post")
+            return RayHit(3, "/Wall") if direction[0] > .9 else None
+        front = MultiRanger(cast).measure(truth(0))[0]
+        self.assertEqual((front["range_mm"], front["hit_prim"]), (2000, "/Post"))
+        single = MultiRanger(cast, fov_rad=0).measure(truth(0))[0]
+        self.assertEqual((single["range_mm"], single["hit_prim"]), (3000, "/Wall"))
+
+    def test_default_origins_are_the_datasheet_sensor_faces(self):
+        calls = []
+        def cast(origin, direction, distance):
+            calls.append(origin.copy())
+            return None
+        MultiRanger(cast, fov_rad=0).measure(truth(0, position=(0, 0, 0)))
+        for origin, name in zip(calls, RANGER_DIRECTIONS_BODY):
+            np.testing.assert_allclose(origin, RANGER_ORIGINS_BODY_M[name])
+        self.assertAlmostEqual(RANGER_ORIGINS_BODY_M["front"][0] - RANGER_ORIGINS_BODY_M["back"][0], .0325)
+        self.assertAlmostEqual(RANGER_ORIGINS_BODY_M["left"][1] - RANGER_ORIGINS_BODY_M["right"][1], .0326)
+
+    def test_default_delivery_is_one_driver_period_late(self):
+        sensor = MultiRanger(lambda *args: RayHit(1, "/Wall"))
+        deliveries = [ms for ms in range(301) if sensor.sample(truth(ms))]
+        self.assertEqual(deliveries, [100, 200, 300])
+        self.assertEqual(sensor.latest[0]["sample_time_s"], .2)
+        self.assertEqual(sensor.delay_ms, RANGER_PERIOD_MS)
+
     def test_10_hz_delivery_delay_and_held_values(self):
         sensor = MultiRanger(lambda *args: RayHit(1, "/Wall"), delay_ms=25)
         self.assertEqual(sensor.snapshot()["range.front"], 0)
         deliveries = []
         for ms in range(1026):
             rows = sensor.sample(truth(ms, position=(ms/1000, 0, 1)))
-            if ms == 124:
+            if ms == 24:
                 self.assertEqual(sensor.snapshot()["range_front_valid"], 0)
             if rows:
                 deliveries.append(ms)
                 self.assertEqual(len(rows), 5)
-                self.assertEqual(rows[0]["origin_x_m"], (ms-25)/1000)
+                self.assertAlmostEqual(rows[0]["origin_x_m"], (ms-25)/1000 + RANGER_ORIGINS_BODY_M["front"][0])
                 self.assertEqual(rows[0]["sample_time_s"], (ms-25)/1000)
                 self.assertEqual(rows[0]["delivery_time_s"], ms/1000)
-        self.assertEqual(deliveries, list(range(125, 1026, 100)))
-        self.assertEqual(sensor.generated_frames, 10)
-        self.assertEqual(sensor.delivered_frames, 10)
+        self.assertEqual(deliveries, list(range(25, 1026, 100)))
+        self.assertEqual(sensor.generated_frames, 11)
+        self.assertEqual(sensor.delivered_frames, 11)
         self.assertEqual(sensor.snapshot()["range.front"], 1000)
         with self.assertRaises(ValueError):
             sensor.sample(truth(1025))  # Duplicate scheduling is a bug.
@@ -114,7 +144,8 @@ class RangerTests(unittest.TestCase):
     def test_reject_bad_configuration(self):
         for options in ({"delay_ms": -.1}, {"delay_ms": .5}, {"std_m": -1},
                         {"bias_m": math.nan}, {"seed": -1}, {"max_distance_m": 0},
-                        {"max_distance_m": 32.767}, {"origins_body_m": {}}):
+                        {"max_distance_m": 32.767}, {"origins_body_m": {}},
+                        {"fov_rad": -.1}, {"fov_rad": math.pi}, {"cone_rays": 0}):
             with self.subTest(options=options), self.assertRaises(ValueError):
                 MultiRanger(lambda *args: None, **options)
 

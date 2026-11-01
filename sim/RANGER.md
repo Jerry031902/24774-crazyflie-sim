@@ -1,7 +1,7 @@
 # Multi-ranger simulation
 
-The initial Multi-ranger model provides front/back/left/right/up distances from
-live PhysX colliders. It is separate from the stock EKF and PID. It does not
+The Multi-ranger model provides front/back/left/right/up distances from live
+PhysX colliders, following the real deck and its stock firmware driver. It is separate from the stock EKF and PID. It does not
 implement obstacle avoidance, emergency braking, or a NIS gate. The only
 consumer is `run_sim.py --mission`, whose WedgeBug navigator reads the held
 front/left/back/right values (see the README's WedgeBug section).
@@ -15,7 +15,10 @@ Verified by repository and installed Isaac Sim 5.1 source inspection:
 | Five direction names, mm log units | `src/modules/src/range.c:38-43,66-86` |
 | 100 ms nominal task interval (10 Hz) | `src/deck/drivers/src/multiranger.c:134-143`; hardware also waits for data-ready sequentially |
 | Invalid reading = 32767 mm | `multiranger.c:99-105`; default accepts only RANGE_VALID status |
-| Nominal range up to 4 m | [Bitcraze Multi-ranger specification](https://www.bitcraze.io/products/multi-ranger-deck/); real range depends on conditions |
+| Nominal range up to 4 m, accuracy "within a few millimeters" | [Bitcraze Multi-ranger specification](https://www.bitcraze.io/products/multi-ranger-deck/); real range depends on surface and light |
+| 27° full field of view | ST VL53L1X datasheet (DS12385), default 16x16 SPAD ROI; `src/drivers/src/vl53l1x.c` never sets an ROI |
+| Delivery one period after measurement start | `multiranger.c:84-112,136-143` reads each result and restarts the sensor every 100 ms; ST defaults left by `vl53l1xInit` are long mode and a 41 ms timing budget (`src/lib/vl53l1/core/src/vl53l1_api.c`, `VL53L1_StaticInit`/`VL53L1_SetPresetMode`) |
+| Sensor positions | [Multi-ranger datasheet](https://www.bitcraze.io/documentation/hardware/multi_ranger_deck/multi_ranger_deck-datasheet.pdf) drawing: side sensor faces 32.5 mm apart front-back, 32.6 mm left-right; up sensor at the deck centre |
 | Body frame | X forward, Y left, Z up, same as the existing sim |
 | Scene queries | `omni.physx.get_physx_scene_query_interface().raycast_all`, installed PhysX 107.3.26 in Isaac Sim 5.1; [107.3 Python API](https://docs.omniverse.nvidia.com/kit/docs/omni_physics/107.3/extensions/runtime/source/omni.physx/docs/api/python.html) |
 | Headless query enable | `SimulationContext.get_physics_context().set_enable_scene_query_support(True)`, installed `isaacsim.core.api/physics_context/physics_context.py:695-709` |
@@ -27,17 +30,26 @@ stop after a self hit. World-aligned bounding boxes are printed by the smoke tes
 
 The following are explicit approximations, not hardware-calibrated claims:
 
-- One ray per direction, zero-width beam. No FOV/cone, reflectivity, transparent
-  materials, ambient-light sensitivity, multipath, sensor crosstalk, or random
-  invalid-status model. The ray intersects collision geometry, not render-only meshes.
-- Default optical origins are all `(0,0,0)` in the body frame. This is a body-origin
-  approximation until the installed deck's optical extrinsics are measured.
-  `RANGER_ORIGINS_BODY_M` accepts a separate measured position for each sensor.
-  Both origin and direction rotate with the full body quaternion, including tilt.
-- Zero-mean Gaussian noise std 0.003 m is a placeholder. Bias defaults to zero;
-  extra delay defaults to zero. Integer-mm quantization is modeled.
-- All five axes are sampled simultaneously on ideal 100 ms boundaries. First
-  sample is at 0.1 s. No I2C/RTOS jitter or hardware startup is emulated.
+- Each sensor casts a grid of rays clipped to its 27° cone (49 rays with the
+  default `RANGER_CONE_RAYS = 9`) and reports the nearest hit. The real sensor
+  reports one distance from a signal histogram over its whole field of view;
+  nearest-hit is a conservative approximation. Because the cone is 3-D, a tilted
+  drone can see the floor within 4 m (below about 0.93 m altitude even when level).
+  The cone's horizontal row is exactly the 2-D fan in `read_rangers.m`.
+  `fov_rad=0` gives the previous single centre ray.
+- No reflectivity, transparent materials, ambient-light sensitivity, multipath,
+  sensor crosstalk, or random invalid-status model. Rays intersect collision
+  geometry, not render-only meshes.
+- Default origins are the datasheet sensor faces, `RANGER_ORIGINS_BODY_M`. Their
+  heights above the body origin are unmeasured and left at 0. Both origin and
+  direction rotate with the full body quaternion, including tilt.
+- Zero-mean Gaussian noise std 0.003 m matches the specified "few millimeters"
+  but is not calibrated to this drone. Bias defaults to zero. Integer-mm
+  quantization is modeled.
+- All five axes are measured simultaneously at 0, 0.1, 0.2 s, ... and delivered
+  one period later (`RANGER_DELAY_MS = 100`), so the first values arrive at 0.1 s.
+  The geometry is taken at the start of each 41 ms measurement. No I2C/RTOS
+  jitter, sequential sensor reads, or hardware startup is emulated.
 - No visual deck mesh or extra mass is added; `MASS_KG` remains the total vehicle
   mass and should be measured with all installed decks and battery.
 
@@ -125,7 +137,10 @@ saves CSVs, range/flight plots, timing statistics, and `summary.json`.
 The geometry-only option is `--geometry-only`. Existing scene USDs and firmware
 sources are not rewritten by these tests. Use a new output directory to keep old results.
 
-Verified on 2026-11-01 in `cf_sim_dev` (Isaac Sim 5.1):
+Verified on 2026-11-01 in `cf_sim_dev` (Isaac Sim 5.1), with the previous
+single-ray, zero-delay, body-origin model. The hardware cone/delay/position model
+has passed the offline tests; rerun the smoke runner in the container to
+re-verify it live:
 
 - 23 sim unit tests passed, including 7 Ranger tests and the existing sensor/PID tests.
 - 23 offline real-logger tests passed, including optional Ranger block/rate/invalid handling.

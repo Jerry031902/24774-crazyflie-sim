@@ -313,11 +313,11 @@ state the PID sees (truth or EKF) ─────┼─> wedgebugStep()  50 Hz  
 - `--navigator python` uses the reference port in [navigation/wedgebug.py](navigation/wedgebug.py) instead. Both are line-by-line ports of `navigator_step.m`.
 - **Sequence:** take off to `--target-z` above the mission start and settle for 1 s, navigate, then hold position at the goal. Headless runs exit when the drone holds at the goal.
 - **What the navigator sees:** ground truth in `firmware_pid` and `ekf_shadow`, the EKF estimate in `ekf_closed_loop`. Missions start the EKF at the mission start (`kalman.initialX/Y`); Flow/ToF still give no absolute XY, so expect position drift with `--noise on`.
-- **Rangers:** the same [ranger.py](ranger.py) deck as every other mode (see [RANGER.md](RANGER.md)): one ray per direction, 4 m range, held values updated at 10 Hz, cast in 3-D from the true pose, so attitude tilts them. The navigator reads front/left/back/right; `--ranger-noise on` adds its noise. `--mission` requires `--ranger on`. The 2-D simulator below still uses MATLAB's 9-ray, 27 deg cone at 25 Hz (`navigation/geometry.py`), so Isaac and 2-D runs see different ranges.
+- **Rangers:** the same [ranger.py](ranger.py) deck as every other mode (see [RANGER.md](RANGER.md)), modelled on the real Multi-ranger: a 27 deg cone per sensor (nearest hit), 4 m range, whole millimetres, cast from each sensor face on the deck edge, measured every 100 ms and delivered 100 ms later, as the firmware driver does. Rays come from the true pose, so attitude tilts them. The navigator reads front/left/back/right; `--ranger-noise on` adds its noise. `--mission` requires `--ranger on`. MATLAB and the 2-D simulator below use the same model in the horizontal plane.
 - **Missions** live in [navigation/missions.py](navigation/missions.py): room, obstacles, start, waypoints, goal, scene file. `matlab_main` is `main.m` unchanged, in a 10 x 8 m room with its corner at the world origin. A new mission needs its scene built once with `build_mission_scene.py --mission NAME`; that script never writes `arena.usd`.
 - **CSV:** `build/missions/<mission>_<mode>.csv` adds navigator mode/phase/waypoint, the four ranges, and the commanded velocity and yaw rate to the usual firmware columns.
 
-Without Isaac Sim, the 2-D kinematic simulator reproduces the MATLAB results (matlab_main: goal at 65.8 s, closest gap 0.21 m) and compares the C and Python navigators:
+Without Isaac Sim, the 2-D kinematic simulator reproduces the MATLAB results (matlab_main: goal at 70.9 s, closest gap 0.11 m) and compares the C and Python navigators:
 
 ```bash
 python3 /workspace/sim/navigation/sim2d.py                     # Python reference; any Python 3 + numpy
@@ -436,7 +436,7 @@ Recommended workflow for anything that will fly on the real drone:
 | Battery voltage compensation | Firmware config enables it, but the simulation does not run the voltage-to-PWM stage. The adapter converts the pre-compensation force command directly to N. | Battery/motor model if needed |
 | Flow / ToF geometry | Stock measurement models on a flat floor; no camera images or scene raycasts, no texture failure/dropout model | Scene-dependent sensing if needed |
 | EKF observability | Flow/ToF provide no absolute XY or yaw reference; noise-on position drift is expected | External reference only if available on the real system |
-| Ranger deck | Five single rays, 10 Hz, up to 4 m; default origins co-located at body origin | Measured optical origins/noise; FOV and surface-dependent validity model if needed |
+| Ranger deck | Five 27° ray cones (nearest hit), 10 Hz with one period of delivery delay, up to 4 m, from the datasheet sensor positions (heights unmeasured) | Measured noise and sensor heights; surface/lighting-dependent validity model if needed |
 | Aerodynamics (drag, ground effect) | No explicit model | Identify from real logs if needed |
 
 These are idealized baseline results, not a validated prediction of real-flight accuracy. The complete arming/watchdog/emergency state machines are not simulated. See [BASELINE_EKF.md](BASELINE_EKF.md) for measurement assumptions and the actual stability criteria.

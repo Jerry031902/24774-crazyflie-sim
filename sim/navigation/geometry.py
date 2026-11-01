@@ -135,12 +135,15 @@ def ranger_spread(p):
 
 
 def apply_ranger_noise(r, p, rng):
-    """Gaussian noise on each return, then the range limit (MATLAB read_rangers order)."""
+    """Gaussian noise on each return, whole millimetres, then the range limit (MATLAB read_rangers order)."""
     r = np.array(r, dtype=float)
     if p.ranger.noise > 0 or p.ranger.noise_rel > 0:
         hit = np.isfinite(r)
         sigma = p.ranger.noise + p.ranger.noise_rel * r[hit]
         r[hit] = r[hit] + sigma * rng.standard_normal(np.count_nonzero(hit))
+    if p.ranger.resolution > 0:
+        # MATLAB round(): halves away from zero (np.round goes to even). Inf stays Inf.
+        r = np.sign(r) * np.floor(np.abs(r) / p.ranger.resolution + 0.5) * p.ranger.resolution
     r[r > p.ranger.range_max] = np.inf
     return np.maximum(r, 0.0)
 
@@ -148,17 +151,21 @@ def apply_ranger_noise(r, p, rng):
 def read_rangers(pos, psi, env, p, rng=None):
     """[front, left, back, right] distances for a drone at pos with yaw psi.
 
-    Each sensor casts p.ranger.n_rays rays over its cone against every wall
-    segment and reports the nearest hit; inf = no return within range_max.
+    Each sensor casts p.ranger.n_rays rays over its cone from its face,
+    p.ranger.offset ahead of the body centre, against every wall segment and
+    reports the nearest hit; inf = no return within range_max.
     """
     A = env.edges[:, 0:2]
     E = env.edges[:, 2:4] - A
-    W = A - np.asarray(pos, dtype=float)
+    W0 = A - np.asarray(pos, dtype=float)
+    offset = np.broadcast_to(np.asarray(p.ranger.offset, dtype=float), (4,))
     spread = ranger_spread(p)
     r = np.full(4, np.inf)
     with np.errstate(divide="ignore", invalid="ignore"):
         for j in range(4):
-            th = psi + j * math.pi / 2 + spread
+            heading = psi + j * math.pi / 2
+            W = W0 - offset[j] * np.array([math.cos(heading), math.sin(heading)])  # sensor face to each edge start
+            th = heading + spread
             U = np.vstack([np.cos(th), np.sin(th)])
             den = np.outer(E[:, 1], U[0]) - np.outer(E[:, 0], U[1])
             t = ((W[:, 0] * E[:, 1] - W[:, 1] * E[:, 0])[:, None]) / den

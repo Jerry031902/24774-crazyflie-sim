@@ -2,8 +2,10 @@
 
 Firmware: src/deck/drivers/src/multiranger.c:99-105,134-143 (invalid/rate),
 src/modules/src/range.c:38-43,66-86 (uint16 millimeters and direction names).
-Hardware: https://www.bitcraze.io/products/multi-ranger-deck/ (five axes, 4 m).
-This first model uses one geometric ray per sensor, not the VL53L1X optics/FOV.
+Hardware: https://www.bitcraze.io/products/multi-ranger-deck/ (five axes, 4 m,
+datasheet drawing for sensor positions) and the ST VL53L1X datasheet (27 deg
+field of view). Each sensor reports the nearest hit in its cone of rays.
+matlab-trajectory-sim/src/sensors/read_rangers.m is the same model in 2-D.
 """
 
 import csv
@@ -21,20 +23,53 @@ from controllers.firmware_pid import rotation_and_rpy, vector3
 RANGER_PERIOD_MS = 100
 RANGER_MAX_DISTANCE_M = 4.0  # Nominal hardware range, not a guarantee on materials.
 RANGER_INVALID_MM = 32767   # Driver's invalid status sentinel, never a 32.767 m hit.
-RANGER_NOISE_STD_M = 0.003   # Assumption, NOT calibrated to this drone's Multi-ranger.
+RANGER_NOISE_STD_M = 0.003   # "Within a few millimeters" (Bitcraze); NOT calibrated to this drone.
 RANGER_BIAS_M = 0.0
-RANGER_DELAY_MS = 0
+# Every 100 ms the driver reads each sensor's result and restarts it, so a
+# value reaches range.c one period after its measurement began. The driver
+# keeps the ST defaults (long mode, 41 ms timing budget), which finish within
+# the period. Geometry is taken at the start of the measurement.
+RANGER_DELAY_MS = RANGER_PERIOD_MS
 RANGER_SEED = 7
+# VL53L1X full field of view with its default 16x16 SPAD ROI, which the driver
+# never changes. RANGER_CONE_RAYS spans the cone's width, as p.ranger.n_rays.
+RANGER_FOV_RAD = math.radians(27)
+RANGER_CONE_RAYS = 9
 
 # Body frame: X forward, Y left, Z up. Axis names follow range.c.
 RANGER_DIRECTIONS_BODY = {
     "front": (1., 0., 0.), "back": (-1., 0., 0.),
     "left": (0., 1., 0.), "right": (0., -1., 0.), "up": (0., 0., 1.),
 }
-# Explicit approximation: all optical origins at the body origin until the
-# installed deck extrinsics are measured. Values are meters relative to body.
-# These are NOT claimed to be the real PCB sensor positions. Self is excluded.
-RANGER_ORIGINS_BODY_M = {name: (0., 0., 0.) for name in RANGER_DIRECTIONS_BODY}
+# Sensor faces from the Multi-ranger datasheet drawing: the four side sensors
+# stand on edge daughter boards 32.5 mm apart front-back and 32.6 mm left-right;
+# the up sensor is at the deck centre. Heights above the body origin are
+# unmeasured and left at 0. Meters relative to body. Self is excluded.
+RANGER_ORIGINS_BODY_M = {
+    "front": (0.01625, 0., 0.), "back": (-0.01625, 0., 0.),
+    "left": (0., 0.0163, 0.), "right": (0., -0.0163, 0.), "up": (0., 0., 0.),
+}
+
+
+def cone_directions(axis, fov_rad=RANGER_FOV_RAD, cone_rays=RANGER_CONE_RAYS):
+    """Body-frame unit rays filling a circular cone about one sensor's axis.
+
+    An n x n grid of angles (across, then up/down), clipped to the cone. For a
+    horizontal sensor the middle row is the 2-D fan of read_rangers.m, so level
+    flight past vertical walls reads as in MATLAB. One ray when n=1 or fov=0.
+    """
+    axis = np.asarray(axis, dtype=float)
+    if cone_rays <= 1 or fov_rad <= 0:
+        return axis[None, :]
+    across = np.cross((0., 0., 1.), axis)  # +90 deg yaw: front -> left
+    if np.linalg.norm(across) < 1e-9:
+        across = np.array((1., 0., 0.))   # up sensor: spread over body X and Y
+    vertical = np.cross(axis, across)
+    half = fov_rad / 2
+    angles = np.linspace(-half, half, cone_rays)
+    rays = [math.cos(b) * (math.cos(a) * axis + math.sin(a) * across) + math.sin(b) * vertical
+            for b in angles for a in angles if math.cos(a) * math.cos(b) >= math.cos(half) - 1e-12]
+    return np.array(rays)
 
 
 @dataclass(frozen=True)
@@ -80,7 +115,7 @@ class PhysXRaycaster:
 
 
 class MultiRanger:
-    """Sample five body-fixed rays at 10 Hz, optionally delay their delivery.
+    """Sample five body-fixed ray cones at 10 Hz and deliver them a period later.
 
     Pass a callable raycaster so timing/noise/frame conversion can be tested
     without Kit. RNG is separate from SensorSuite; enabling this deck must not
@@ -90,7 +125,7 @@ class MultiRanger:
     def __init__(self, raycast, noise=False, seed=RANGER_SEED,
                  std_m=RANGER_NOISE_STD_M, bias_m=RANGER_BIAS_M,
                  delay_ms=RANGER_DELAY_MS, max_distance_m=RANGER_MAX_DISTANCE_M,
-                 origins_body_m=None):
+                 origins_body_m=None, fov_rad=RANGER_FOV_RAD, cone_rays=RANGER_CONE_RAYS):
         if not callable(raycast):
             raise ValueError("raycast must be callable")
         if not math.isfinite(std_m) or std_m < 0 or not math.isfinite(bias_m):
@@ -101,6 +136,10 @@ class MultiRanger:
             raise ValueError("Ranger delay must be nonnegative integer milliseconds")
         if not isinstance(seed, (int, np.integer)) or seed < 0:
             raise ValueError("Ranger seed must be a nonnegative integer")
+        if not math.isfinite(fov_rad) or not 0 <= fov_rad < math.pi:
+            raise ValueError("Ranger field of view must be in [0, pi) radians")
+        if not isinstance(cone_rays, (int, np.integer)) or cone_rays < 1:
+            raise ValueError("Ranger cone_rays must be a positive integer")
         self.raycast, self.noise, self.seed = raycast, bool(noise), int(seed)
         self.std_m, self.bias_m = float(std_m), float(bias_m)
         self.delay_ms, self.max_distance_m = int(delay_ms), float(max_distance_m)
@@ -108,6 +147,9 @@ class MultiRanger:
         if set(origins) != set(RANGER_DIRECTIONS_BODY):
             raise ValueError("Provide one body-frame origin for each of the five sensors")
         self.origins = {name: vector3(value).copy() for name, value in origins.items()}
+        self.fov_rad, self.cone_rays = float(fov_rad), int(cone_rays)
+        self.rays_body = {name: cone_directions(axis, self.fov_rad, self.cone_rays)
+                          for name, axis in RANGER_DIRECTIONS_BODY.items()}
         self.reset()
 
     def reset(self):
@@ -126,7 +168,11 @@ class MultiRanger:
         for name, body_direction in RANGER_DIRECTIONS_BODY.items():
             origin = position + rotation @ self.origins[name]
             direction = rotation @ np.asarray(body_direction)
-            hit = self.raycast(origin, direction, self.max_distance_m)
+            hit = None  # Nearest return anywhere in the cone, as the sensor reports.
+            for ray in self.rays_body[name]:
+                candidate = self.raycast(origin, rotation @ ray, self.max_distance_m)
+                if candidate is not None and (hit is None or candidate.distance_m < hit.distance_m):
+                    hit = candidate
             valid = hit is not None and math.isfinite(hit.distance_m) and 0 <= hit.distance_m <= self.max_distance_m
             ideal = float(hit.distance_m) if valid else math.nan
             status = "valid" if valid else "no_return"
@@ -153,7 +199,7 @@ class MultiRanger:
         return readings
 
     def sample(self, truth):
-        """Call once per 1 ms from t=0. First sample at 100 ms, as in driver."""
+        """Call once per 1 ms from t=0. Measure at 0, 100, ... ms, as the driver starts them."""
         now = float(truth["time_s"])
         if not math.isfinite(now):
             raise ValueError("Ranger time must be finite")
@@ -161,7 +207,7 @@ class MultiRanger:
         if ms != self.next_ms or abs(now-ms/1000) > 1e-8:
             raise ValueError("Sample Ranger exactly once per 1 ms, starting at t=0")
         self.next_ms += 1
-        if ms and ms % RANGER_PERIOD_MS == 0:
+        if ms % RANGER_PERIOD_MS == 0:
             frame = self.measure(truth)
             heapq.heappush(self.pending, (ms+self.delay_ms, ms, frame))
             self.generated_frames += 1
@@ -188,13 +234,16 @@ class MultiRanger:
         return fields
 
     def settings(self):
-        return {"model": "single_ray_per_direction", "period_ms": RANGER_PERIOD_MS,
+        return {"model": "nearest_hit_in_ray_cone", "period_ms": RANGER_PERIOD_MS,
+                "fov_deg": math.degrees(self.fov_rad), "cone_rays": self.cone_rays,
+                "rays_per_sensor": len(self.rays_body["front"]),
                 "max_distance_m": self.max_distance_m, "invalid_mm": RANGER_INVALID_MM,
                 "noise": self.noise, "noise_std_m": self.std_m, "bias_m": self.bias_m,
                 "delay_ms": self.delay_ms, "seed": self.seed,
                 "origins_body_m": {k: v.tolist() for k, v in self.origins.items()},
                 "directions_body": RANGER_DIRECTIONS_BODY,
-                "assumptions": "unmeasured extrinsics; no FOV/material/lighting/status/dropout model; no avoidance"}
+                "assumptions": "datasheet sensor positions, unmeasured heights; nearest hit in the cone; "
+                               "no material/lighting/status/dropout model; no avoidance"}
 
 
 class RangerLog:

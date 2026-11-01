@@ -4,7 +4,9 @@ function sim_log = run_simulation(start, waypoints, goal, env, p)
 %   at start ([x y]), visits the rows of waypoints (Nx2) in order, then
 %   flies to goal ([x y]). Pass waypoints = [] to fly straight to the goal.
 %   Every tick:
-%     1. read the four rangers (held between updates, every p.ranger.period)
+%     1. read the four rangers: measured every p.ranger.period, delivered
+%        p.ranger.latency later and held until the next delivery (Inf
+%        before the first), as the firmware driver does
 %     2. update the GO_TO_GOAL / AVOID state machine
 %     3. apply its body-frame velocity and yaw-rate commands to the model
 %   The run ends when the goal is reached and the drone has stopped, when
@@ -61,13 +63,20 @@ nav   = navigator_init(start, targets);
 gust  = [0; 0];
 tau_g = 2.0;   % gust correlation time [s]
 next_read = 0;
+pending   = struct('t', {}, 'r', {});   % measured, not yet delivered
+ranges    = inf(4, 1);                  % nothing delivered yet
 arrived  = false;  t_arrive  = NaN;
 collided = false;  t_collide = NaN;
 
 for k = 1:N
     if t(k) >= next_read - 1e-9
-        ranges = read_rangers(x(1:2), psi, env, p);
+        pending(end+1) = struct('t', t(k) + p.ranger.latency, ...
+                                'r', read_rangers(x(1:2), psi, env, p)); %#ok<AGROW>
         next_read = next_read + p.ranger.period;
+    end
+    while ~isempty(pending) && pending(1).t <= t(k) + 1e-9
+        ranges = pending(1).r;
+        pending(1) = [];
     end
     [u_body, yaw_rate, nav] = navigator_step(nav, x, psi, ranges, t(k), p);
     wind = p.wind(:) + gust;

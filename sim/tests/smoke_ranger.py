@@ -28,14 +28,16 @@ def main():
     try:
         import numpy as np
         import run_sim as runtime
-        from ranger import MultiRanger, PhysXRaycaster, RangerLog, RANGER_INVALID_MM
+        from ranger import MultiRanger, PhysXRaycaster, RangerLog, RANGER_INVALID_MM, RANGER_ORIGINS_BODY_M
         from flight_demo import FlightLog, TimedHoverMoveDemo
         from plot_ekf import analyze, plot_ekf
         from plot_ranger import plot_ranger
 
         sim, _ = runtime.setup_simulation("ekf_closed_loop", ranger=True)
-        sensor = runtime._ranger
-        caster = sensor.raycast
+        caster = runtime._ranger.raycast
+        # Exact-geometry checks: one centre ray per sensor from the body origin.
+        sensor = MultiRanger(caster, fov_rad=0,
+                             origins_body_m={name: (0, 0, 0) for name in RANGER_ORIGINS_BODY_M})
 
         def measure(position, q=(1, 0, 0, 0), active=sensor):
             return {r["direction"]: r for r in active.measure(
@@ -72,9 +74,12 @@ def main():
         check("pitch_90_front_sees_floor", pitch["front"]["ideal_distance_m"], 1)
         check("pitch_90_up_sees_east", pitch["up"]["ideal_distance_m"], 2.95)
         origins = {name: (.1, 0, .02) for name in center}
-        offset = measure((0, -.6, 1), active=MultiRanger(caster, origins_body_m=origins))
+        offset = measure((0, -.6, 1), active=MultiRanger(caster, origins_body_m=origins, fov_rad=0))
         check("configurable_optical_origin", offset["front"]["ideal_distance_m"], .25)
-        short = measure((0, 0, 1), active=MultiRanger(caster, max_distance_m=2))
+        hardware = measure((0, -.6, 1), active=runtime._ranger)  # 27 deg cone from the front sensor face
+        check("hardware_cone_from_sensor_face", hardware["front"]["ideal_distance_m"],
+              .35 - RANGER_ORIGINS_BODY_M["front"][0])
+        short = measure((0, 0, 1), active=MultiRanger(caster, max_distance_m=2, fov_rad=0))
         assert all(r["valid"] == 0 for r in short.values())
         print("PASS beyond maximum range: invalid", flush=True)
 
@@ -131,7 +136,8 @@ def main():
                 assert report["stable"], report
                 trajectories[label] = np.asarray(traces)
                 if ranging:
-                    assert runtime._ranger.generated_frames == runtime._ranger.delivered_frames == 250
+                    # Measured at 0..25 s; each is delivered 100 ms later, so the last is pending.
+                    assert runtime._ranger.generated_frames == 251 and runtime._ranger.delivered_frames == 250
                     assert ranging.rows == 1250
                     plot_ranger(ranging.path)
                     plot_ekf(path)

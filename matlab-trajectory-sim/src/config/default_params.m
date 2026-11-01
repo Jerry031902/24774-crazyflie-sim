@@ -30,13 +30,18 @@ p.wind_gust = 0;      % std dev of random gusts [m/s], 0 = off
 p.map.xlim = [0 10];  % [m]
 p.map.ylim = [0 8];   % [m]
 
-% Multi-ranger deck: VL53L1x time-of-flight sensors facing front, left, back, right
-p.ranger.range_max = 4.0;          % beyond this: no return (Inf) [m]
-p.ranger.fov       = deg2rad(27);  % cone width; 0 = a single centre ray [rad]
-p.ranger.n_rays    = 9;            % rays cast across the cone; the nearest hit is reported
-p.ranger.period    = 0.04;         % update period [s]
-p.ranger.noise     = 0;            % Gaussian range noise: std dev [m]...
-p.ranger.noise_rel = 0;            % ...plus this fraction of the range [-]
+% Multi-ranger deck: VL53L1x time-of-flight sensors facing front, left, back,
+% right (the up sensor is not modelled in 2-D). Bitcraze product page and
+% datasheet, ST VL53L1X datasheet, firmware src/deck/drivers/src/multiranger.c.
+p.ranger.range_max  = 4.0;          % beyond this: no return (Inf) [m]
+p.ranger.fov        = deg2rad(27);  % full cone width at the default ROI; 0 = a single centre ray [rad]
+p.ranger.n_rays     = 9;            % rays cast across the cone; the nearest hit is reported
+p.ranger.period     = 0.1;          % the driver reads every sensor every 100 ms [s]
+p.ranger.latency    = 0.1;          % ...one period after that measurement started [s]
+p.ranger.offset     = [0.01625; 0.0163; 0.01625; 0.0163];  % sensor face ahead of the body centre: front, left, back, right [m]
+p.ranger.resolution = 0.001;        % the driver reports whole millimetres [m]
+p.ranger.noise      = 0;            % Gaussian range noise: std dev [m]...
+p.ranger.noise_rel  = 0;            % ...plus this fraction of the range [-]
 
 % Navigation: straight-line GO_TO_GOAL; WedgeBug AVOID (sweep, then round
 % the shorter side, wall-following when the edge is out of view)
