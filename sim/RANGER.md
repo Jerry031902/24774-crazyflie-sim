@@ -2,7 +2,9 @@
 
 The initial Multi-ranger model provides front/back/left/right/up distances from
 live PhysX colliders. It is separate from the stock EKF and PID. It does not
-implement obstacle avoidance, emergency braking, or a NIS gate.
+implement obstacle avoidance, emergency braking, or a NIS gate. The only
+consumer is `run_sim.py --mission`, whose WedgeBug navigator reads the held
+front/left/back/right values (see the README's WedgeBug section).
 
 ## 1. Sources and model boundaries
 

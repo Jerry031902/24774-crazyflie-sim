@@ -29,6 +29,7 @@
 #include "mm_tof.h"
 #include "mm_flow.h"
 #include "mm_distance.h"
+#include "wedgebug.h"
 %}
 
 %include "math3d.h"
@@ -50,6 +51,8 @@
 %include "mm_tof.h"
 %include "mm_flow.h"
 %include "mm_distance.h"
+// Team navigation core (apps/wedgebug); path is relative to the repo root.
+%include "apps/wedgebug/src/wedgebug.h"
 
 
 %inline %{

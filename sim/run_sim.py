@@ -9,6 +9,7 @@ Run in the official container:
     /isaac-sim/python.sh /workspace/sim/run_sim.py --mode firmware_pid --demo
     /isaac-sim/python.sh /workspace/sim/run_sim.py --mode ekf_shadow --demo --noise off
     /isaac-sim/python.sh /workspace/sim/run_sim.py --mode ekf_closed_loop --demo --noise on
+    /isaac-sim/python.sh /workspace/sim/run_sim.py --mode firmware_pid --mission matlab_main
 
 The bundled official model comes from NVIDIA's Isaac 5.1 asset collection:
 https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Robots/Bitcraze/Crazyflie/cf2x.usd
@@ -55,10 +56,11 @@ _body = None
 _body_com = None
 _motor_actuator = None
 _ranger = None
+_initial_position = INITIAL_POSITION  # A mission replaces this with its start.
 
 
 def sample_ranger(state):
-    """Attach held range telemetry, without feeding it to the stock EKF/PID."""
+    """Attach held range telemetry; --mission navigates with it, the stock EKF/PID never see it."""
     if _ranger is None:
         return []
     packets = _ranger.sample(state)
@@ -159,7 +161,7 @@ def reset_runtime(sim, controller):
     _body.initialize()
     # Reset after PhysX initialization so startup updates cannot create drift.
     _body.set_world_poses(
-        positions=np.array([INITIAL_POSITION]),
+        positions=np.array([_initial_position]),
         orientations=np.array([INITIAL_ORIENTATION_WXYZ]),
     )
     _body.set_linear_velocities(np.zeros((1, 3), dtype=np.float32))
@@ -179,7 +181,7 @@ def reset_runtime(sim, controller):
         _ranger.reset()
 
 
-def make_controller(mode, noise=False, seed=7):
+def make_controller(mode, noise=False, seed=7, initial_xy_yaw=None):
     """Select a controller without importing Isaac Sim into controller code."""
     if mode == "altitude_pid":
         return AltitudePIDController(
@@ -194,16 +196,21 @@ def make_controller(mode, noise=False, seed=7):
         from controllers.ekf_pid import EKFPIDController
         if PHYSICS_DT != 0.001 or GRAVITY_M_S2 != 9.81:
             raise ValueError("Stock EKF baseline requires 1 ms steps and gravity 9.81")
-        return EKFPIDController(mode, noise=noise, seed=seed)
+        return EKFPIDController(mode, noise=noise, seed=seed, initial_xy_yaw=initial_xy_yaw)
     if mode in ("free_fall", "hover_ff"):
         return ConstantThrustController(0.0 if mode == "free_fall" else MASS_KG * GRAVITY_M_S2)
     raise ValueError(f"Unknown mode: {mode}")
 
 
-def setup_simulation(mode, target_z_m=TARGET_Z_M, noise=False, seed=7,
-                     ranger=False, ranger_noise=False):
-    """Open the arena, reference the drone, and start fixed-step physics."""
-    global _body, _motor_actuator, _ranger
+def setup_simulation(mode, target_z_m=TARGET_Z_M, noise=False, seed=7, ranger=False, ranger_noise=False,
+                     scene_path=ARENA_PATH, initial_position=INITIAL_POSITION, camera=None,
+                     ekf_initial_xy_yaw=None):
+    """Open the scene, reference the drone, and start fixed-step physics.
+
+    Missions pass their own scene, start position and camera (eye, target),
+    and ekf_initial_xy_yaw to start the EKF there (kalman.initialX/Y/Yaw).
+    """
+    global _body, _motor_actuator, _ranger, _initial_position
     _ranger = None
     # All Isaac Sim/USD imports occur after main() has started SimulationApp.
     from isaacsim.core.api import SimulationContext
@@ -212,18 +219,19 @@ def setup_simulation(mode, target_z_m=TARGET_Z_M, noise=False, seed=7,
     from isaacsim.core.utils.viewports import set_camera_view
     from pxr import Gf, PhysxSchema, Usd, UsdGeom, UsdPhysics
 
-    controller = make_controller(mode, noise=noise, seed=seed)
+    _initial_position = tuple(map(float, initial_position))
+    controller = make_controller(mode, noise=noise, seed=seed, initial_xy_yaw=ekf_initial_xy_yaw)
     if not math.isfinite(MASS_KG) or MASS_KG <= 0:
         raise ValueError("MASS_KG must be positive and finite")
     if len(INERTIA_KGM2) != 3 or any(not math.isfinite(i) or i <= 0 for i in INERTIA_KGM2):
         raise ValueError("INERTIA_KGM2 must contain three positive finite moments")
     if 2 * max(INERTIA_KGM2) > sum(INERTIA_KGM2):
         raise ValueError("Principal moments must satisfy the inertia triangle inequality")
-    for path in (ARENA_PATH, CRAZYFLIE_USD_PATH):
+    for path in (scene_path, CRAZYFLIE_USD_PATH):
         if not path.is_file():
             raise FileNotFoundError(f"Required USD is missing: {path}")
-    if not open_stage(str(ARENA_PATH)):
-        raise RuntimeError(f"Could not open {ARENA_PATH}")
+    if not open_stage(str(scene_path)):
+        raise RuntimeError(f"Could not open {scene_path}")
     stage = get_current_stage()
     if UsdGeom.GetStageUpAxis(stage) != "Z" or UsdGeom.GetStageMetersPerUnit(stage) != 1.0:
         raise ValueError("The arena must use meters and Z up")
@@ -234,7 +242,7 @@ def setup_simulation(mode, target_z_m=TARGET_Z_M, noise=False, seed=7,
     body_prim = stage.GetPrimAtPath(BODY_PRIM_PATH)
     if not body_prim or not body_prim.HasAPI(UsdPhysics.RigidBodyAPI):
         raise RuntimeError(f"No rigid body at {BODY_PRIM_PATH}")
-    UsdGeom.XformCommonAPI(root).SetTranslate(Gf.Vec3d(*INITIAL_POSITION))
+    UsdGeom.XformCommonAPI(root).SetTranslate(Gf.Vec3d(*_initial_position))
     motor_positions = None
     _motor_actuator = None
     if mode in MOTOR_MODES:
@@ -285,14 +293,16 @@ def setup_simulation(mode, target_z_m=TARGET_Z_M, noise=False, seed=7,
         _motor_actuator = MotorActuator(_body)
         print("Firmware PID: 1 kHz tick, position 100 Hz, attitude/rate 500 Hz; "
               f"gyro LPF {controller.gyro_filter_hz:g} Hz; 47-17 force model", flush=True)
-    if mode in ("altitude_pid",) + MOTOR_MODES:
+    if camera is not None:
+        set_camera_view(eye=list(camera[0]), target=list(camera[1]))
+    elif mode in ("altitude_pid",) + MOTOR_MODES:
         # Frame takeoff and hover from -X so the +X green pillar does not
         # occlude the drone at the origin or during the demo's +X movement.
         set_camera_view(eye=[-1.5, -1.5, max(1.2, target_z_m + 0.4)],
                         target=[0.0, 0.0, (INITIAL_POSITION[2] + target_z_m) / 2])
     else:
         set_camera_view(eye=[1.0, -1.0, 0.7], target=list(INITIAL_POSITION))
-    print(f"Drone: {CRAZYFLIE_USD_PATH}\nBody: {BODY_PRIM_PATH}", flush=True)
+    print(f"Scene: {scene_path}\nDrone: {CRAZYFLIE_USD_PATH}\nBody: {BODY_PRIM_PATH}", flush=True)
     print(f"Mode: {mode}; mass: {MASS_KG:.6f} kg", flush=True)
     if mode in EKF_MODES:
         print(f"Sensors: {controller.suite.settings()}", flush=True)
@@ -317,10 +327,14 @@ def main():
     parser.add_argument("--noise", choices=("off", "on"), default="off", help="EKF simulated sensor noise")
     parser.add_argument("--seed", type=int, default=7, help="Sensor noise seed; independent EKF and Ranger RNG streams")
     parser.add_argument("--ranger", choices=("off", "on"), default="on",
-                        help="Five-direction geometric ranging, no avoidance (default: on)")
+                        help="Five-direction geometric ranging; only --mission avoids obstacles with it (default: on)")
     parser.add_argument("--ranger-noise", choices=("off", "on"), default="off",
                         help="Independent Multi-ranger noise, separate from EKF --noise")
     parser.add_argument("--ranger-csv", type=Path, help="10 Hz Ranger log; defaults beside flight CSV")
+    parser.add_argument("--mission", help="WedgeBug navigation mission (sim/navigation/missions.py) "
+                        "in its own scene; an alternative to --demo")
+    parser.add_argument("--navigator", choices=("firmware", "python"), default="firmware",
+                        help="Mission navigator: the C core in cffirmware, or the Python reference port")
     args = parser.parse_args()
     if not math.isfinite(args.hover_seconds) or args.hover_seconds <= 0:
         parser.error("--hover-seconds must be positive and finite")
@@ -336,17 +350,51 @@ def main():
         parser.error("--seed must be nonnegative")
     if args.ranger == "off" and (args.ranger_csv or args.ranger_noise == "on"):
         parser.error("--ranger-csv and --ranger-noise on require --ranger on")
+    mission = None
+    if args.mission:
+        from navigation.missions import MISSIONS
+        if args.mission not in MISSIONS:
+            parser.error(f"--mission must be one of: {', '.join(sorted(MISSIONS))}")
+        if args.demo or args.mode not in MOTOR_MODES:
+            parser.error("--mission needs a firmware controller mode and replaces --demo")
+        if args.ranger == "off":
+            parser.error("--mission navigates with the Multi-ranger and requires --ranger on")
+        mission = MISSIONS[args.mission]
+        if not (SIM_DIR / "scenes" / mission.scene).is_file():
+            parser.error(f"Missing scenes/{mission.scene}; build it with "
+                         f"/isaac-sim/python.sh sim/build_mission_scene.py --mission {mission.name}")
 
     from isaacsim import SimulationApp
 
     app = SimulationApp({"headless": args.headless})  # False by default.
     logger = ranger_logger = None
     try:
-        sim, controller = setup_simulation(args.mode, args.target_z, noise=args.noise == "on", seed=args.seed,
-                                           ranger=args.ranger == "on", ranger_noise=args.ranger_noise == "on")
+        ranger_kwargs = dict(ranger=args.ranger == "on", ranger_noise=args.ranger_noise == "on")
+        if mission is None:
+            sim, controller = setup_simulation(args.mode, args.target_z, noise=args.noise == "on", seed=args.seed,
+                                               **ranger_kwargs)
+        else:
+            (x0, x1), (y0, y1) = mission.xlim, mission.ylim
+            overview = (((x0 + x1) / 2, y0 - 0.6 * (y1 - y0), 0.9 * max(x1 - x0, y1 - y0)),
+                        ((x0 + x1) / 2, (y0 + y1) / 2, 0.0))
+            sim, controller = setup_simulation(
+                args.mode, args.target_z, noise=args.noise == "on", seed=args.seed, **ranger_kwargs,
+                scene_path=SIM_DIR / "scenes" / mission.scene,
+                initial_position=(mission.start[0], mission.start[1], INITIAL_POSITION[2]),
+                camera=overview, ekf_initial_xy_yaw=(mission.start[0], mission.start[1], 0.0))
         demo = None
         csv_path = None
-        if args.demo or args.csv:
+        if mission is not None:
+            from flight_demo import FlightLog
+            from mission_flight import WedgeBugMission
+            from navigation.params import default_params
+            demo = WedgeBugMission(mission, default_params(), args.target_z, backend=args.navigator,
+                                   use_estimate=args.mode == "ekf_closed_loop")
+            csv_path = args.csv or SIM_DIR.parent / f"build/missions/{mission.name}_{args.mode}.csv"
+            logger = FlightLog(csv_path)
+            print(f"Mission: {mission.name}, {args.navigator} navigator", flush=True)
+            print(f"Flight CSV: {csv_path}", flush=True)
+        elif args.demo or args.csv:
             from flight_demo import FlightLog, HoverMoveDemo, TimedHoverMoveDemo
             demo_type = TimedHoverMoveDemo if args.mode in EKF_MODES else HoverMoveDemo
             demo = demo_type(args.target_z, hover_hold_s=args.hover_seconds) if args.demo else None
@@ -369,6 +417,7 @@ def main():
         print_every = round(1.0 / (PRINT_HZ * PHYSICS_DT))
         steps = 0
         needs_reset = False
+        reported = False
         while app.is_running():
             # Continue processing window events while the timeline is paused.
             if not sim.is_playing():
@@ -381,6 +430,7 @@ def main():
                 reset_runtime(sim, controller)
                 steps = 0
                 needs_reset = False
+                reported = False
                 if demo is not None:
                     demo.reset()
                 if logger is not None:
@@ -397,31 +447,40 @@ def main():
                 target = demo.target(state)
             command = controller.compute(state, target)
             apply_command(command)
+            if mission is not None and "estimate" in command:
+                demo.observe_estimate(command["estimate"])
             if logger is not None:
-                logger.write(state, target, command, demo.phase if demo else "hold")
+                logger.write(state, target, command, demo.phase if demo else "hold",
+                             demo.log_fields() if mission is not None else None)
             sim.step(render=False)  # Exactly one 1 ms physics step per command.
             steps += 1
             if steps % print_every == 0:
                 state = read_state(steps * PHYSICS_DT)
                 x, y, z = state["position_m"]
                 vz = state["linear_velocity_m_s"][2]
+                status = f"  {demo.phase} {demo.nav.mode} {demo.nav.phase}" if mission is not None else ""
                 print(f"t={state['time_s']:.3f} s  position=({x:.5f}, {y:.5f}, {z:.5f}) m  "
-                      f"vz={vz:.4f} m/s  thrust={command['total_thrust_N']:.5f} N", flush=True)
+                      f"vz={vz:.4f} m/s  thrust={command['total_thrust_N']:.5f} N{status}", flush=True)
                 if _ranger is not None and _ranger.latest is not None:
                     values = " ".join(f"{r['direction']}={r['range_mm'] if r['valid'] else 'invalid'}"
                                       for r in _ranger.latest)
                     print(f"Ranger [mm] sample t={_ranger.latest[0]['sample_time_s']:.3f}: {values}", flush=True)
             if steps % RENDER_EVERY == 0:
                 sim.render()  # UI/render update only, with physics disabled.
+            if mission is not None and demo.done and not reported:
+                print(f"Mission summary: {demo.summary()}", flush=True)
+                reported = True
             if args.steps and steps >= args.steps:
                 break
             if args.headless and demo is not None:
+                limit_s = getattr(demo, "time_limit_s", args.hover_seconds + 30.0)
                 if demo.done:
-                    print("FIRMWARE_DEMO_COMPLETE", flush=True)
+                    print("MISSION_COMPLETE" if mission is not None else "FIRMWARE_DEMO_COMPLETE", flush=True)
                     break
-                timeout_s = args.hover_seconds + 30.0
-                if steps * PHYSICS_DT >= timeout_s:
-                    raise RuntimeError(f"Firmware demo did not complete within {timeout_s:g} simulation seconds")
+                if steps * PHYSICS_DT >= limit_s:
+                    raise RuntimeError(f"Demo did not complete within {limit_s:g} simulation seconds")
+        if mission is not None and not reported:
+            print(f"Mission summary (incomplete): {demo.summary()}", flush=True)
         if app.is_running():
             sim.stop()
     except KeyboardInterrupt:

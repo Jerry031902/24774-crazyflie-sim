@@ -36,9 +36,12 @@ def state_dict(state):
 
 
 class FirmwareEKF:
-    def __init__(self):
+    def __init__(self, initial_xy_yaw=None):
+        """initial_xy_yaw: optional (x m, y m, yaw rad), the stock kalman.initialX/
+        initialY/initialYaw parameters. None keeps the stock zeros (baseline)."""
         import cffirmware
         self.cf = cffirmware
+        self.initial_xy_yaw = initial_xy_yaw
         self.reset()
 
     def reset(self):
@@ -46,8 +49,12 @@ class FirmwareEKF:
         self.core = cf.kalmanCoreData_t()
         self.params = cf.kalmanCoreParams_t()
         cf.kalmanCoreDefaultParams(self.params)
+        if self.initial_xy_yaw is not None:
+            # Same as setting the kalman.initialX/Y/Yaw parameters before flight.
+            self.params.initialX, self.params.initialY, self.params.initialYaw = map(float, self.initial_xy_yaw)
         # Flow v2 requests Kalman, but DOES NOT request attitudeReversionOff.
-        # Keep default initial XYZ/yaw and covariance, no truth initialization.
+        # Default initial XYZ/yaw (unless a mission start was given) and
+        # covariance; no truth initialization.
         self.acc_sub = cf.Axis3fSubSampler_t()
         self.gyro_sub = cf.Axis3fSubSampler_t()
         self.acc_latest, self.gyro_latest = cf.Axis3f(), cf.Axis3f()
