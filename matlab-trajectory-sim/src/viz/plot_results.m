@@ -31,6 +31,11 @@ if sim_log.collided
     text(ax, pos(end,1), pos(end,2), '  Collision', 'Color', c.critical, 'FontWeight', 'bold');
 end
 handles = [h_go h_av h_ev h_sweep h_route];
+if isfield(sim_log,'safety_state')
+    [sx,sy] = mode_path(pos,double(ismember(sim_log.safety_state,[2 3])),1);
+    h_safe = plot(ax,sx,sy,'-','Color',c.critical,'LineWidth',2.5,'DisplayName','Safety override');
+    handles = [handles h_safe];
+end
 legend(ax, handles, 'Location', 'southoutside', 'NumColumns', 3, ...
     'Box', 'off', 'Interpreter', 'none');
 title(ax, run_summary(m), 'FontWeight', 'normal', 'Color', c.ink);
@@ -56,7 +61,7 @@ yline(ax, p.ranger.range_max, '-', 'max range', 'Color', c.muted, 'FontSize', 8,
     'LabelHorizontalAlignment', 'right', 'LabelVerticalAlignment', 'top');
 ylim(ax, [0, 1.1 * p.ranger.range_max]);   % every reading fits; gaps mean no return
 ylabel(ax, 'Range [m]');
-legend(ax, [h_f h_l], {'front of travel', 'side of travel (wall side when following)'}, 'Location', 'northoutside', ...
+legend(ax, [h_f h_l], {'front of travel', 'wall-side range'}, 'Location', 'northoutside', ...
     'Orientation', 'horizontal', 'Box', 'off', 'FontSize', 8, 'AutoUpdate', 'off');
 ax_rng = ax;
 
@@ -65,6 +70,9 @@ ax = nexttile(tl, 6);
 style_axes(ax);
 shade_avoid(ax, t, sim_log.mode, c);
 plot(ax, t, vecnorm(sim_log.x(:, 3:4), 2, 2), 'Color', c.ink, 'LineWidth', 1.3);
+if isfield(sim_log,'candidate_u_body') && sim_log.safety_enabled
+    plot(ax,t,vecnorm(sim_log.candidate_u_body,2,2),'--','Color',c.muted,'LineWidth',0.8);
+end
 yline(ax, p.nav.v_cruise, ':', 'v_{cruise}', 'Color', c.ink2, 'FontSize', 8, ...
     'LabelHorizontalAlignment', 'left');
 yline(ax, p.nav.v_follow, ':', 'v_{follow}', 'Color', c.ink2, 'FontSize', 8, ...
@@ -77,7 +85,7 @@ ax_spd = ax;
 ax = nexttile(tl, 9);
 style_axes(ax);
 shade_avoid(ax, t, sim_log.mode, c);
-gap = obstacle_distance(env, pos) - p.radius;
+gap = obstacle_distance(env, pos, t) - p.radius;
 plot(ax, t, gap, 'Color', c.ink, 'LineWidth', 1.3);
 yline(ax, 0, '-', 'contact', 'Color', c.critical, 'FontSize', 8, 'LabelHorizontalAlignment', 'left');
 yline(ax, p.near_miss, '--', 'near miss', 'Color', c.serious, 'FontSize', 8, ...
@@ -142,6 +150,6 @@ elseif m.arrived
 else
     outcome = 'Did not reach the goal';
 end
-s = sprintf('%s   |   %d AVOID episodes, %d sweeps   |   path x%.2f of straight lines   |   min clearance %.2f m', ...
-    outcome, m.avoid_episodes, m.sweeps, m.path_ratio, m.min_clearance);
+s = sprintf('%s   |   min clearance %.2f m\n%d AVOID episodes, %d sweeps   |   path x%.2f of straight lines', ...
+    outcome, m.min_clearance, m.avoid_episodes, m.sweeps, m.path_ratio);
 end

@@ -18,6 +18,7 @@ Differences from MATLAB: target indices (wp, unreachable, events) are
 """
 
 from dataclasses import dataclass, field
+import copy
 import math
 
 import numpy as np
@@ -106,12 +107,42 @@ class WedgeBugNavigator:
         self.unreachable = []
         self.events = []               # dicts: t, type, pos, wp
         self.sweeps = []               # dicts: t, ang, rng, pos, center, edge, seen, cost, side, pass
+        self.safety_enabled = False
+        self.ranger_frame = None
+        self.scan_seq = 0
+
+    def prepare_safety(self):
+        self.safety_enabled = True
+
+    def checkpoint(self):
+        return copy.deepcopy(self.__dict__)
+
+    def restore(self, checkpoint):
+        self.__dict__.clear()
+        self.__dict__.update(checkpoint)
+
+    def resume(self, x, psi, t):
+        """Replan interrupted translation, preserving targets and episode history."""
+        self.last_pos = np.asarray(x[:2], dtype=float).copy()
+        self.facing = False
+        if self.mode == "DONE":
+            return
+        self._start_avoid(self.last_pos, t)
+        d = self.last_pos-self.target()
+        self.last_bearing = math.atan2(d[1], d[0])
+        self._start_sweep(psi)
+        self.scan = {"t": [], "ang": [], "rng": []}
+        self.scan_seq = 0
+        self.subgoal = np.full(2, np.nan)
+        self.following = self.wall_seen = False
+        self.since_turn = self.overshoot_left = 0.
 
     # ------------------------------------------------------------------
     def target(self):
         return self.targets[self.wp]
 
-    def step(self, x, psi, ranges, t):
+    def step(self, x, psi, ranges, t, frame=None):
+        self.ranger_frame = frame
         p = self.p
         x = np.asarray(x, dtype=float)
         ranges = np.asarray(ranges, dtype=float)
@@ -184,7 +215,7 @@ class WedgeBugNavigator:
         d = point - pos
         dist = float(np.linalg.norm(d))
 
-        if dist <= nav.yaw_free_radius:
+        if dist <= nav.yaw_free_radius and not self.safety_enabled:
             # The last few centimetres: slide straight onto the point, no turning.
             cmd = _Command(0, 0.0, 0.0)
             if dist > 0:
@@ -244,17 +275,34 @@ class WedgeBugNavigator:
             err = float(wrap_to_pi(self.sweep_center - half - psi))
             cmd = _Command(self.exec_dir, 0.0, self._yaw_command(err))
             if abs(err) < math.radians(1):
-                self.sweep_stage = "scan"
+                self.sweep_stage = "settle" if self.ranger_frame is not None else "scan"
                 self.scan = {"t": [], "ang": [], "rng": []}
+                self.scan_seq = 0
+
+        elif self.sweep_stage == "settle":
+            err = float(wrap_to_pi(self.sweep_center-half-psi))
+            cmd = _Command(self.exec_dir, 0., self._yaw_command(err))
+            if abs(wrap_to_pi(self.ranger_frame.yaw-(self.sweep_center-half))) < math.radians(1):
+                self.sweep_stage = "scan"
 
         elif self.sweep_stage == "scan":
             # Sweep to the left end, logging front, left and right: the sides
             # sit 90 deg off the nose, so a +/-45 deg sweep sees +/-135 deg.
-            self.scan["t"] += [t, t, t]
-            self.scan["ang"] += [psi, psi + math.pi / 2, psi - math.pi / 2]
-            self.scan["rng"] += [ranges[0], ranges[1], ranges[3]]
+            frame = self.ranger_frame
+            sample_yaw = psi if frame is None else frame.yaw
+            if frame is None or (frame.seq > self.scan_seq and
+                    abs(wrap_to_pi(sample_yaw-self.sweep_center)) <= half+math.radians(1)):
+                sample_time = t if frame is None else frame.sample_time
+                sample_ranges = ranges if frame is None else frame.ranges
+                self.scan["t"] += [sample_time]*3
+                self.scan["ang"] += [sample_yaw, sample_yaw+math.pi/2, sample_yaw-math.pi/2]
+                self.scan["rng"] += [sample_ranges[0], sample_ranges[1], sample_ranges[3]]
+                if frame is not None:
+                    self.scan_seq = frame.seq
             if wrap_to_pi(psi - (self.sweep_center - half)) < 2 * half - 1e-3:
                 return _Command(self.exec_dir, 0.0, nav.sweep_rate), False
+            if frame is not None and wrap_to_pi(sample_yaw-(self.sweep_center+half)) < -math.radians(1):
+                return cmd, False
             return cmd, self._decide(pos, t)
         return cmd, False
 

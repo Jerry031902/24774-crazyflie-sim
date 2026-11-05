@@ -19,7 +19,7 @@ function m = compute_metrics(sim_log, env, p)
 %     max_speed           [m/s]
 
 pos   = sim_log.x(:, 1:2);
-gap   = obstacle_distance(env, pos) - p.radius;
+gap   = obstacle_distance(env, pos, sim_log.t) - p.radius;
 route = [sim_log.start; sim_log.targets];
 types = {sim_log.events.type};
 
@@ -38,4 +38,18 @@ m.avoid_time      = nnz(sim_log.mode == 2) * p.dt;
 m.min_clearance   = min(gap);
 m.near_misses     = sum(diff([false; gap < p.near_miss]) == 1);
 m.max_speed       = max(vecnorm(sim_log.x(:, 3:4), 2, 2));
+m.safety_brakes = 0; m.backup_brakes = 0; m.safety_time = 0;
+m.max_brake_time = NaN; m.max_brake_distance = NaN;
+if isfield(sim_log,'safety_events')
+    events = sim_log.safety_events;
+    brakes = events(strcmp({events.type},'brake'));
+    stopped = events(strcmp({events.type},'stopped'));
+    m.safety_brakes = numel(brakes);
+    m.backup_brakes = nnz(strcmp({brakes.source},'backup'));
+    m.safety_time = nnz(ismember(sim_log.safety_state,[2 3]))*p.dt;
+    if ~isempty(stopped)
+        m.max_brake_time = max([stopped.duration]);
+        m.max_brake_distance = max([stopped.distance]);
+    end
+end
 end

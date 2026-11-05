@@ -7,9 +7,16 @@ This is a top-down 2-D simulation of a Crazyflie with a Multi-ranger deck flying
 ```matlab
 main               % fly the mission in main.m: metrics, plots (Figure 1), playback (Figure 2)
 runtests('tests')  % unit and closed-loop tests
+demo_popup        % obstacle appears during flight; delayed sensing and braking
 ```
 
 Figure 2 has a **Replay** button (it reads **Stop** while playing) and a speed menu, so you can watch the run again at any time.
+
+`demo_popup` tests a static obstacle appearing at a specified time in front of
+the cruising vehicle. Change its body gap, appearance time, noise or Safety flag
+in the script. `popup_validation` compares stopping boundaries across distance,
+sensor phase and noise; see [POPUP.md](POPUP.md) for results, replay and controller
+interpretation. Normal `main` retains the original pre-existing obstacle mission.
 
 To change the mission, edit the **Mission** section of `main.m`. Positions are in metres inside the 10 × 8 m room:
 
@@ -29,14 +36,23 @@ Before flying, `run_simulation` checks the start, waypoints and goal. It stops w
 
 ## Each tick
 
+Safety supervision is enabled by default. A primary stopping-distance monitor
+and a separate raw-range/timeout backup arbitrate navigation and braking/holding
+commands before the model update. Set `p.safety.enabled = false` to reproduce the
+original navigator. See [SAFETY.md](SAFETY.md) for the architecture, diagnostics,
+fault injection and the on/off validation runner.
+
 ```
-read_rangers  ->  navigator_step  ->  dynamics_step
-4 distances      GO_TO_GOAL / AVOID    kinematic point, velocity lag,
-(held between    -> [forward; left]    speed, acceleration and
- updates)           + yaw rate         yaw-rate limits
+read_rangers -> range_processing -> navigator candidate -> primary monitor
+      |                                                     |
+      +----------> raw backup monitor ----------------> command arbiter
+                                                            |
+                                                      dynamics_step
 ```
 
-The command is the same as a Crazyflie hover setpoint (`vx, vy, yawrate`), without height.
+The selected command is the same as a Crazyflie hover setpoint (`vx, vy, yawrate`),
+without height. The disabled-safety path is the original `read_rangers ->
+navigator_step -> dynamics_step` loop.
 
 ## Navigator (`src/nav/navigator_step.m`)
 
@@ -78,7 +94,10 @@ The target is reported as unreachable and skipped if any of these happens withou
 
 **Reached**
 
-Within `wp_tol` of a target, the drone moves on to the next one. The last `yaw_free_radius` is a direct slide, without turning. After the goal, the mode is DONE.
+Within `wp_tol` of a target, the drone moves on to the next one. With supervision
+disabled, the last `yaw_free_radius` is a direct slide without turning. Safety-enabled
+motion keeps a ranger facing the move through the final approach. After the goal,
+the mode is DONE.
 
 ## Model
 
@@ -100,13 +119,19 @@ dpsi/dt = r                      |r| <= yaw_rate_max
 
 The deck's fifth (up) sensor is not modelled in 2-D. The room walls are visible to the sensors. With `fov = 0` each sensor is a single centre ray, which can miss a corner that is within the drone's own width.
 
-**Noise.** Each reading that hits something gets zero-mean Gaussian noise with standard deviation `p.ranger.noise + p.ranger.noise_rel × range`, drawn independently for each sensor and each update. Both terms are 0 by default. To fly the main run with noise, uncomment the `p.ranger.noise` line at the top of `main.m`.
+**Noise.** Each reading that hits something gets zero-mean Gaussian noise with standard deviation `p.ranger.noise + p.ranger.noise_rel × range`, drawn independently for each sensor and each update. Both terms are 0 in `default_params`; `main.m` explicitly sets 0.1 m standard deviation for its run. This is a simulation assumption, not a measured hardware error.
 
 ## Ranger noise study
 
 `noise_study(start, waypoints, goal, obstacles, p)` flies one mission 10 times at each noise level, 0, 1, 2, 5, 10 and 20 cm std dev, with a different random seed for each run. It prints a summary and plots outcome, closest approach, time to goal and sweeps against the noise level. The last section of `main.m` runs it on the mission defined there.
 
-Results for the current mission. With the hardware ranger timing and sensor positions, the 0 cm run takes 70.9 s with a closest gap of 0.11 m (2-D Python port, which matches MATLAB exactly without noise). The table below was measured with the previous ranger model (25 Hz, no delay, sensors at the body centre); rerun `noise_study` to refresh it.
+The following are historical results for the original navigator, with safety
+supervision disabled. With the hardware ranger timing and sensor positions,
+the 0 cm run takes 70.9 s with a closest gap of 0.11 m (2-D Python port, which
+matches MATLAB exactly without noise). The table below was measured with the
+previous ranger model (25 Hz, no delay, sensors at the body centre).
+Run `safety_validation` for a current on/off comparison, or `noise_study` for
+the settings in the supplied parameter struct.
 
 | Noise (std dev) | Succeeded | Collided | Closest gap, worst run | Time to goal, median |
 |---|---|---|---|---|

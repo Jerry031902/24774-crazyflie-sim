@@ -175,7 +175,7 @@ class MultiRanger:
                     hit = candidate
             valid = hit is not None and math.isfinite(hit.distance_m) and 0 <= hit.distance_m <= self.max_distance_m
             ideal = float(hit.distance_m) if valid else math.nan
-            status = "valid" if valid else "no_return"
+            status = "valid" if valid else ("no_return" if hit is None else "invalid")
             range_mm = RANGER_INVALID_MM
             if valid:
                 # Noise switch controls the random term; bias is independently
@@ -221,16 +221,20 @@ class MultiRanger:
 
     def snapshot(self):
         """Held values for full-rate flight CSV; use timestamps, not value changes."""
-        fields = {"ranger_sample_time_s": math.nan, "ranger_delivery_time_s": math.nan}
+        fields = {"ranger_sample_time_s": math.nan, "ranger_delivery_time_s": math.nan,
+                  "ranger_frame_seq": 0}
         for name in RANGER_DIRECTIONS_BODY:
             fields[f"range.{name}"] = 0
             fields[f"range_{name}_valid"] = 0
+            fields[f"range_{name}_status"] = 0  # unavailable / hit / no-return / invalid = 0/1/2/3
         if self.latest is not None:
             fields["ranger_sample_time_s"] = self.latest[0]["sample_time_s"]
             fields["ranger_delivery_time_s"] = self.latest[0]["delivery_time_s"]
+            fields["ranger_frame_seq"] = round(self.latest[0]["sample_time_s"]*1000)//RANGER_PERIOD_MS+1
             for row in self.latest:
                 fields[f"range.{row['direction']}"] = row["range_mm"]
                 fields[f"range_{row['direction']}_valid"] = row["valid"]
+                fields[f"range_{row['direction']}_status"] = {"valid": 1, "no_return": 2}.get(row["status"], 3)
         return fields
 
     def settings(self):

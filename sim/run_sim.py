@@ -335,7 +335,23 @@ def main():
                         "in its own scene; an alternative to --demo")
     parser.add_argument("--navigator", choices=("firmware", "python"), default="firmware",
                         help="Mission navigator: the C core in cffirmware, or the Python reference port")
+    parser.add_argument("--safety", choices=("off", "on"), default="off",
+                        help="Optional horizontal Primary/Backup supervision for --mission (default: off)")
+    parser.add_argument("--safety-brake-accel", type=float, default=.5,
+                        help="Assumed minimum braking deceleration [m/s^2]; validate in PhysX")
+    parser.add_argument("--safety-brake-response", type=float, default=.2,
+                        help="Assumed PID braking response delay [s]; validate in PhysX")
+    parser.add_argument("--safety-backup-brake-accel", type=float, default=.5)
+    parser.add_argument("--safety-backup-brake-response", type=float, default=.25)
     args = parser.parse_args()
+    if args.safety == "on" and not args.mission:
+        parser.error("--safety on currently requires --mission")
+    for value in (args.safety_brake_accel, args.safety_backup_brake_accel):
+        if not math.isfinite(value) or value <= 0:
+            parser.error("Safety braking accelerations must be finite and positive")
+    for value in (args.safety_brake_response, args.safety_backup_brake_response):
+        if not math.isfinite(value) or value < 0:
+            parser.error("Safety response delays must be finite and nonnegative")
     if not math.isfinite(args.hover_seconds) or args.hover_seconds <= 0:
         parser.error("--hover-seconds must be positive and finite")
     if args.steps < 0:
@@ -368,6 +384,8 @@ def main():
 
     app = SimulationApp({"headless": args.headless})  # False by default.
     logger = ranger_logger = None
+    demo = None
+    csv_path = None
     try:
         ranger_kwargs = dict(ranger=args.ranger == "on", ranger_noise=args.ranger_noise == "on")
         if mission is None:
@@ -382,18 +400,26 @@ def main():
                 scene_path=SIM_DIR / "scenes" / mission.scene,
                 initial_position=(mission.start[0], mission.start[1], INITIAL_POSITION[2]),
                 camera=overview, ekf_initial_xy_yaw=(mission.start[0], mission.start[1], 0.0))
-        demo = None
-        csv_path = None
         if mission is not None:
             from flight_demo import FlightLog
             from mission_flight import WedgeBugMission
             from navigation.params import default_params
+            safety_config = None
+            if args.safety == "on":
+                from safety import SafetyConfig
+                safety_config = SafetyConfig(noise_std=_ranger.std_m if _ranger.noise else 0.,
+                    brake_accel=args.safety_brake_accel, brake_response=args.safety_brake_response,
+                    backup_brake_accel=args.safety_backup_brake_accel,
+                    backup_brake_response=args.safety_backup_brake_response)
             demo = WedgeBugMission(mission, default_params(), args.target_z, backend=args.navigator,
-                                   use_estimate=args.mode == "ekf_closed_loop")
-            csv_path = args.csv or SIM_DIR.parent / f"build/missions/{mission.name}_{args.mode}.csv"
+                                   use_estimate=args.mode == "ekf_closed_loop", safety_config=safety_config)
+            suffix = "_safety" if safety_config is not None else ""
+            csv_path = args.csv or SIM_DIR.parent / f"build/missions/{mission.name}_{args.mode}{suffix}.csv"
             logger = FlightLog(csv_path)
             print(f"Mission: {mission.name}, {args.navigator} navigator", flush=True)
             print(f"Flight CSV: {csv_path}", flush=True)
+            if safety_config is not None:
+                print("Safety: ON; horizontal-only; configured braking bounds await PhysX calibration", flush=True)
         elif args.demo or args.csv:
             from flight_demo import FlightLog, HoverMoveDemo, TimedHoverMoveDemo
             demo_type = TimedHoverMoveDemo if args.mode in EKF_MODES else HoverMoveDemo
@@ -459,6 +485,8 @@ def main():
                 x, y, z = state["position_m"]
                 vz = state["linear_velocity_m_s"][2]
                 status = f"  {demo.phase} {demo.nav.mode} {demo.nav.phase}" if mission is not None else ""
+                if mission is not None and demo.safety is not None:
+                    status += f" Safety:{demo.safety.state} {demo.safety.reason}"
                 print(f"t={state['time_s']:.3f} s  position=({x:.5f}, {y:.5f}, {z:.5f}) m  "
                       f"vz={vz:.4f} m/s  thrust={command['total_thrust_N']:.5f} N{status}", flush=True)
                 if _ranger is not None and _ranger.latest is not None:
@@ -494,11 +522,15 @@ def main():
         omni.kit.app.get_app().post_quit(1)
         raise
     finally:
-        if logger is not None:
-            logger.close()
-        if ranger_logger is not None:
-            ranger_logger.close()
-        app.close()
+        try:
+            if demo is not None and mission is not None and demo.safety is not None and csv_path is not None:
+                demo.write_safety_report(csv_path.with_suffix(".safety.json"))
+        finally:
+            if logger is not None:
+                logger.close()
+            if ranger_logger is not None:
+                ranger_logger.close()
+            app.close()
 
 
 if __name__ == "__main__":

@@ -25,5 +25,14 @@ fprintf('    %-18s %.1f m flown, %.1f m in straight lines (x%.2f)\n', 'Path leng
     m.path_length, m.direct_length, m.path_ratio);
 fprintf('    %-18s %d episodes, %d sweeps, %.1f s\n', 'AVOID', m.avoid_episodes, m.sweeps, m.avoid_time);
 fprintf('    %-18s %.2f m minimum, %d near misses\n', 'Clearance', m.min_clearance, m.near_misses);
-fprintf('    %-18s %.2f m/s\n\n', 'Peak speed', m.max_speed);
+fprintf('    %-18s %.2f m/s\n', 'Peak speed', m.max_speed);
+if isfield(m,'safety_brakes')
+    fprintf('    %-18s %d brakes (%d backup), %.1f s braking/holding\n', ...
+        'Safety',m.safety_brakes,m.backup_brakes,m.safety_time);
+    if isfinite(m.max_brake_time)
+        fprintf('    %-18s %.2f s, %.3f m (maxima over completed brakes)\n', ...
+            'Brake maxima',m.max_brake_time,m.max_brake_distance);
+    end
+end
+fprintf('\n');
 end

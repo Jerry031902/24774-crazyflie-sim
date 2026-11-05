@@ -1,4 +1,4 @@
-function [u_body, yaw_rate, nav] = navigator_step(nav, x, psi, ranges, t, p)
+function [u_body, yaw_rate, nav] = navigator_step(nav, x, psi, ranges, t, p, frame)
 %NAVIGATOR_STEP  GO_TO_GOAL / AVOID state machine using WedgeBug sweeps.
 %   [u_body, yaw_rate, nav] = NAVIGATOR_STEP(nav, x, psi, ranges, t, p)
 %   takes the state x = [px; py; vx; vy], the yaw psi and the ranger
@@ -40,6 +40,9 @@ function [u_body, yaw_rate, nav] = navigator_step(nav, x, psi, ranges, t, p)
 %   yaws while stopped (or slightly, flying nose first), so the rangers
 %   always face the way it moves.
 
+if nargin >= 7
+    nav.ranger_frame = frame;
+end
 pos   = x(1:2);
 speed = norm(x(3:4));
 moved = norm(pos - nav.last_pos);
@@ -137,7 +140,7 @@ event = '';
 d = point - pos;
 dist = norm(d);
 
-if dist <= p.nav.yaw_free_radius
+if dist <= p.nav.yaw_free_radius && (~isfield(p,'safety') || ~p.safety.enabled)
     % The last few centimetres: slide straight onto the point, no turning.
     cmd = command(0, 0, 0);
     cmd.u = min(p.nav.v_cruise, p.nav.k_stop * dist) * (rot2d(psi)' * d) / dist;
@@ -221,20 +224,51 @@ switch nav.sweep_stage
         err = wrap_to_pi(nav.sweep_center - half - psi);
         cmd = command(nav.exec_dir, 0, yaw_command(err, p));
         if abs(err) < deg2rad(1)
-            nav.sweep_stage = 'scan';
+            if isfield(nav,'ranger_frame')
+                nav.sweep_stage = 'settle';
+            else
+                nav.sweep_stage = 'scan';
+            end
             nav.scan = struct('t', [], 'ang', [], 'rng', []);
+            nav.scan_seq = 0;
+        end
+
+    case 'settle'
+        % Await a measurement actually taken at the start heading. Delivery
+        % time/current yaw must not be mistaken for measurement time/yaw.
+        err = wrap_to_pi(nav.sweep_center-half-psi);
+        cmd = command(nav.exec_dir,0,yaw_command(err,p));
+        if abs(wrap_to_pi(nav.ranger_frame.psi-(nav.sweep_center-half))) < deg2rad(1)
+            nav.sweep_stage = 'scan';
         end
 
     case 'scan'
         % Sweep to the left end. Log the front, left and right rangers: the
         % sides sit 90 deg off the nose, so this +/-45 deg sweep sees
         % -135..+135 deg around the blocked heading.
-        nav.scan.t(end+1:end+3)   = t;
-        nav.scan.ang(end+1:end+3) = psi + [0, pi/2, -pi/2];
-        nav.scan.rng(end+1:end+3) = ranges([1 2 4])';
+        sample_yaw = psi;
+        if isfield(nav,'ranger_frame')
+            f = nav.ranger_frame;
+            sample_yaw = f.psi;
+            if f.seq > nav.scan_seq && ...
+                    abs(wrap_to_pi(sample_yaw-nav.sweep_center)) <= half+deg2rad(1)
+                nav.scan.t(end+1:end+3) = f.sample_time;
+                nav.scan.ang(end+1:end+3) = sample_yaw+[0,pi/2,-pi/2];
+                nav.scan.rng(end+1:end+3) = f.ranges([1 2 4])';
+                nav.scan_seq = f.seq;
+            end
+        else
+            nav.scan.t(end+1:end+3)   = t;
+            nav.scan.ang(end+1:end+3) = psi + [0, pi/2, -pi/2];
+            nav.scan.rng(end+1:end+3) = ranges([1 2 4])';
+        end
         if wrap_to_pi(psi - (nav.sweep_center - half)) < 2 * half - 1e-3
             cmd = command(nav.exec_dir, 0, p.nav.sweep_rate);
             return
+        end
+        if isfield(nav,'ranger_frame') && ...
+                wrap_to_pi(sample_yaw-(nav.sweep_center+half)) < -deg2rad(1)
+            return  % finish receiving the stationary end-of-sweep measurement
         end
         [nav, switched] = decide(nav, pos, t, p);
 end

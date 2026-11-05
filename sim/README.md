@@ -24,7 +24,7 @@ PhysX true state
 - **PhysX** computes the drone motion. The drone is one rigid body. Propellers are visual only.
 - **Firmware C code** (controller, mixer, EKF core) is compiled from this repo into `cffirmware`. The simulator calls these routines, not the complete RTOS firmware or hardware drivers. The physics/main loop is 1 kHz; individual routines and sensors run at their firmware rates.
 - **IMU/Flow/ToF measurements** are generated from ground truth using the same measurement models the firmware EKF uses, plus optional noise and delay.
-- **Multi-ranger** uses five body-fixed PhysX rays at nominal 10 Hz. It provides range telemetry separately from the EKF/PID; no avoidance is enabled. See [RANGER.md](RANGER.md) for assumptions, configuration, logs, and validation.
+- **Multi-ranger** uses five body-fixed PhysX ray cones at nominal 10 Hz. Its held ranges feed WedgeBug in `--mission`; the hover/move `--demo` remains unchanged. `--safety on` optionally adds Primary/Backup supervision between WedgeBug and PID. See [RANGER.md](RANGER.md) and [SAFETY.md](SAFETY.md).
 
 The PID uses the previous completed EKF output. The EKF worker then processes the current measurements, matching the stock copy-before-wakeup ordering. [BASELINE_EKF.md](BASELINE_EKF.md#1-stock-order-and-rates) documents the exact order and source lines.
 
@@ -47,6 +47,9 @@ Shared C algorithms can be tested in sim and reused on hardware after adding the
     ├── build_mission_scene.py    generates a mission's scene, e.g. scenes/matlab_room.usd
     ├── run_sim.py                main entry point
     ├── mission_flight.py         --mission: takeoff -> WedgeBug navigation -> hold
+    ├── safety/                  optional Primary/Backup, arbiter, braking/hold/recovery
+    ├── SAFETY.md                integration, assumptions and live-validation commands
+    ├── plot_safety.py            plot Safety state/commands/margins from a mission CSV
     ├── sensors.py                IMU / Flow / ToF models
     ├── ranger.py                 Multi-ranger rays, timing, optional noise/delay, CSV
     ├── plot_ranger.py            plot delivered ranges and geometric distances
@@ -292,6 +295,16 @@ The four-case comparison runner (`tests/smoke_firmware_ekf.py`) and video record
 The ground-truth firmware demo instead switches phases after meeting position/speed tolerances. GUI demos and missions continue holding the final target until the window is closed; `--headless` with `--demo` or `--mission` exits when the run completes. `--steps N` bounds any mode by physics steps; 1000 steps represent 1 simulation second, not necessarily 1 wall-clock second.
 
 ### WedgeBug navigation missions
+
+Optional horizontal Safety supervision is available with `--safety on`. It
+keeps the original PID altitude/attitude control and supports both navigator
+backends. Default is off. Rebuild `cffirmware` after pulling the new C navigation
+helpers. CPU checks pass on the development laptop; the configured PID/PhysX
+braking bounds still require live GPU validation. See [SAFETY.md](SAFETY.md).
+
+```bash
+/isaac-sim/python.sh /workspace/sim/run_sim.py --mode firmware_pid --mission matlab_main --safety on
+```
 
 `--mission` flies the reactive navigator from [matlab-trajectory-sim](../matlab-trajectory-sim/README.md) through its waypoints, using only the four horizontal Multi-ranger readings to get round obstacles it has no map of. It is a separate path from `--demo`, which is unchanged.
 

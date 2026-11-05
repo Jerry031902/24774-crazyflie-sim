@@ -44,6 +44,7 @@ typedef enum {
   WEDGEBUG_SWEEP_STOP = 0,
   WEDGEBUG_SWEEP_TO_START = 1,
   WEDGEBUG_SWEEP_SCAN = 2,
+  WEDGEBUG_SWEEP_SETTLE = 3,  // optional timestamped-range input: wait for endpoint sample
 } wedgebugSweepStage_t;
 
 typedef enum {
@@ -92,6 +93,10 @@ typedef struct {
   float vx, vy;            // velocity estimate, world [m/s]
   float yaw;               // [rad]
   float rangeFront, rangeLeft, rangeBack, rangeRight;  // [m], INFINITY = no return
+  bool timestampedRanges;  // false retains the baseline navigator
+  uint32_t rangerSequence;
+  float rangerSampleTime, rangerSampleYaw;
+  float rawFront, rawLeft, rawRight;
 } wedgebugInput_t;
 
 typedef struct {
@@ -166,6 +171,10 @@ typedef struct {
   int stepEventCount;
   wedgebugSweep_t lastSweep;
   int sweepCount;
+  bool timestampedRanges;
+  uint32_t rangerSequence, scanSequence;
+  float rangerSampleTime, rangerSampleYaw;
+  float rawFront, rawLeft, rawRight;
 } wedgebug_t;
 
 void wedgebugDefaultParams(wedgebugParams_t* params);
@@ -175,3 +184,7 @@ bool wedgebugAddTarget(wedgebug_t* nav, float x, float y);
 void wedgebugStep(wedgebug_t* nav, const wedgebugInput_t* in, wedgebugOutput_t* out);
 // Copy event i (0 <= i < stepEventCount) of the last step. False if out of range.
 bool wedgebugGetStepEvent(const wedgebug_t* nav, int i, wedgebugEvent_t* out);
+// Typed copies allow a safety arbiter to roll back a rejected candidate.
+void wedgebugCopyState(wedgebug_t* dst, const wedgebug_t* src);
+// Restart local planning after braking without losing waypoint/episode history.
+void wedgebugResume(wedgebug_t* nav, float x, float y, float yaw, float t);

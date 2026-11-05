@@ -17,8 +17,10 @@ function fig = animate_run(sim_log, env, p, opts)
 %     fps         frame rate (default 30)
 %     video_file  record the first playback to this MPEG-4 file (default '')
 %     icon_scale  drone icon size relative to its body radius (default 2.5)
+%     autoplay    play immediately (default true); false draws the first frame
+%     start_time  playback begins at this simulation time (default 0)
 
-defaults = struct('speed', 4, 'fps', 30, 'video_file', '', 'icon_scale', 2.5);
+defaults = struct('speed', 4, 'fps', 30, 'video_file', '', 'icon_scale', 2.5,'autoplay',true,'start_time',0);
 if nargin < 4, opts = struct(); end
 for f = fieldnames(defaults)'
     if ~isfield(opts, f{1}), opts.(f{1}) = defaults.(f{1}); end
@@ -33,11 +35,23 @@ speeds = [1 2 4 8 16];
 
 fig = figure('Name', 'Drone playback', 'Color', c.surface, 'Position', [120 80 940 720]);
 ax  = axes(fig, 'Position', [0.08 0.17 0.88 0.76]);
-plot_environment(ax, env);
+plot_environment(ax,environment_at(env,0));
 plot_route(ax, sim_log);
+h_popups = gobjects(1,0);
+if isfield(env,'scheduled')
+    for event = env.scheduled
+        V = event.obstacle.vertices;
+        h_popups(end+1) = patch(ax,'XData',V(:,1),'YData',V(:,2), ...
+            'FaceColor',c.critical,'FaceAlpha',0.3,'EdgeColor',c.critical, ...
+            'Visible','off','HandleVisibility','off','Tag','scheduled_obstacle'); %#ok<AGROW>
+    end
+end
+first_frame = find(sim_log.t >= opts.start_time,1);
+if isempty(first_frame), first_frame = K; end
 
 h_go    = plot(ax, NaN, NaN, '-', 'Color', c.go, 'LineWidth', 2, 'DisplayName', 'GO_TO_GOAL');
 h_av    = plot(ax, NaN, NaN, '-', 'Color', c.avoid, 'LineWidth', 2, 'DisplayName', 'AVOID');
+h_safe  = plot(ax, NaN, NaN, '-', 'Color', c.critical, 'LineWidth', 2.5,'DisplayName','Safety override');
 h_zone  = plot(ax, NaN, NaN, ':', 'Color', c.avoid, 'LineWidth', 1.2, 'DisplayName', 'leave zone');
 ring    = [cos(linspace(0, 2*pi, 90)); sin(linspace(0, 2*pi, 90))];
 h_hit   = plot(ax, NaN, NaN, 'v', 'MarkerSize', 7, 'MarkerFaceColor', c.avoid, ...
@@ -55,7 +69,7 @@ h_ends  = plot(ax, NaN, NaN, '.', 'Color', c.ink, 'MarkerSize', 14, 'HandleVisib
 h_drone = hgtransform(ax);
 draw_drone(h_drone, opts.icon_scale * p.radius, c);
 h_title = title(ax, '', 'FontWeight', 'normal', 'Color', c.ink, 'Interpreter', 'none');
-legend(ax, [h_go h_av h_scan h_pass h_zone], 'Location', 'southoutside', 'Orientation', 'horizontal', ...
+legend(ax, [h_go h_av h_safe h_scan h_pass h_zone], 'Location', 'southoutside','NumColumns',3, ...
     'Box', 'off', 'Interpreter', 'none', 'AutoUpdate', 'off');
 
 btn = uicontrol(fig, 'Style', 'pushbutton', 'String', 'Replay', 'FontSize', 10, ...
@@ -69,7 +83,7 @@ stop_req = false;
 vw = [];
 
 if isempty(opts.video_file)
-    play(false);
+    if opts.autoplay, play(false); else, draw_frame(first_frame); end
 else
     set([btn pop], 'Visible', 'off');   % keep the controls out of the video
     vw = VideoWriter(opts.video_file, 'MPEG-4');
@@ -97,7 +111,7 @@ end
         btn.String = 'Stop';
         speed  = speeds(pop.Value);
         step   = max(1, round(speed / (opts.fps * p.dt)));
-        frames = unique([1:step:K, K]);
+        frames = unique([first_frame:step:K, K]);
         t0 = tic;
         for k = frames
             if ~isgraphics(fig) || stop_req
@@ -109,7 +123,7 @@ end
                 writeVideo(vw, getframe(fig));
             else
                 drawnow limitrate;
-                wait = sim_log.t(k) / speed - toc(t0);
+                wait = (sim_log.t(k)-sim_log.t(first_frame)) / speed - toc(t0);
                 if wait > 0
                     pause(wait);
                 end
@@ -122,10 +136,21 @@ end
     end
 
     function draw_frame(k)
+        for j = 1:numel(h_popups)
+            if sim_log.t(k) >= env.scheduled(j).time-1e-9
+                h_popups(j).Visible = 'on';
+            else
+                h_popups(j).Visible = 'off';
+            end
+        end
         [gx, gy] = mode_path(pos(1:k,:), sim_log.mode(1:k), 1);
         [ax_, ay_] = mode_path(pos(1:k,:), sim_log.mode(1:k), 2);
         set(h_go, 'XData', gx, 'YData', gy);
         set(h_av, 'XData', ax_, 'YData', ay_);
+        if isfield(sim_log,'safety_state')
+            [sx,sy] = mode_path(pos(1:k,:),double(ismember(sim_log.safety_state(1:k),[2 3])),1);
+            set(h_safe,'XData',sx,'YData',sy);
+        end
 
         % Ranger rays: front, left, back, right
         ends = nan(4, 2);
@@ -179,6 +204,13 @@ end
         end
         h_title.String = sprintf('t = %5.1f s     %-18s     target: %s     speed %.2f m/s', ...
             sim_log.t(k), status, sim_log.target_names{sim_log.wp(k)}, norm(sim_log.x(k, 3:4)));
+        if isfield(sim_log,'safety_state') && sim_log.safety_state(k) > 0
+            safety_status = sim_log.safety_names{sim_log.safety_state(k)};
+            if ~isempty(sim_log.safety_reason{k})
+                safety_status = [safety_status ': ' sim_log.safety_reason{k}];
+            end
+            h_title.String = sprintf('%s\nSafety: %s',h_title.String,safety_status);
+        end
     end
 end
 
