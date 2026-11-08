@@ -50,7 +50,16 @@ LOG_BLOCKS = {
     "status": ["kalman.varPX", "kalman.varPY", "kalman.varPZ", "supervisor.info"],
 }
 RANGER_LOG_BLOCK = {"ranger": ["range.front", "range.back", "range.left", "range.right", "range.up"]}
+LQR_LOG_BLOCKS = {
+    "lqr": ["controller.roll", "controller.pitch", "hlqr.rollRef", "hlqr.pitchRef",
+            "hlqr.enabled", "hlqr.mode", "hlqr.saturated"],
+    "lqr_timing": ["hlqr.updates", "hlqr.dtUs", "hlqr.execUs", "hlqr.maxExecUs"],
+}
 UNITS = {
+    "controller.roll/pitch": "actual desired legacy angles for BOTH PID and LQR, degrees",
+    "hlqr.rollRef/pitchRef": "legacy angle references, degrees",
+    "hlqr.dtUs/execUs/maxExecUs": "onboard horizontal-update period/execution time, microseconds",
+    "hlqr.mode": "0 bypass, 1 position hold, 2 velocity tracking, 3 brake, 4 invalid horizontal input",
     "gyro.*": "body deg/s, calibrated and filtered",
     "acc.*": "body Gs, calibrated/aligned and filtered; includes gravity at rest",
     "stateEstimate.x/y/z": "world m, ESTIMATE, not ground truth",
@@ -76,11 +85,11 @@ class LoggingError(RuntimeError):
 class Recorder:
     """Serialize callbacks/close with a lock; fail on missing/stale/erroring blocks."""
 
-    def __init__(self, cf, directory, period_ms, origin=None, clock=time.monotonic, ranger=False):
+    def __init__(self, cf, directory, period_ms, origin=None, clock=time.monotonic, ranger=False, lqr=False):
         self.cf, self.directory, self.clock = cf, Path(directory), clock
         self.origin = clock() if origin is None else origin
         self.period_ms = period_ms
-        self.log_blocks = {**LOG_BLOCKS, **(RANGER_LOG_BLOCK if ranger else {})}
+        self.log_blocks = {**LOG_BLOCKS, **(RANGER_LOG_BLOCK if ranger else {}), **(LQR_LOG_BLOCKS if lqr else {})}
         self.lock = threading.RLock()
         self.blocks = {}
         self.errors = []
@@ -275,7 +284,7 @@ class PositionFlight:
     def __init__(self, cf, recorder, event, setpoint_writer, clock=time.monotonic, sleep=time.sleep):
         self.cf, self.recorder, self.event, self.writer = cf, recorder, event, setpoint_writer
         self.clock, self.sleep = clock, sleep
-        self.z = 0.0
+        self.x = self.y = self.z = 0.0
         self.arm_attempted = False
         self.cleanup_errors = []
 
@@ -295,9 +304,9 @@ class PositionFlight:
                 self.recorder.check()
             elapsed = min(duration, self.clock() - start)
             self.z = float(z_at(elapsed))
-            self.cf.commander.send_position_setpoint(0.0, 0.0, self.z, 0.0)
+            self.cf.commander.send_position_setpoint(self.x, self.y, self.z, 0.0)
             try:
-                self.writer.writerow([self.clock() - self.recorder.origin, phase, 0.0, 0.0, self.z, 0.0])
+                self.writer.writerow([self.clock() - self.recorder.origin, phase, self.x, self.y, self.z, 0.0])
             except Exception as error:
                 if monitor:
                     raise
@@ -325,7 +334,7 @@ class PositionFlight:
                 except BaseException as error:
                     self.cleanup_errors.append(f"stop/disarm: {type(error).__name__}: {error}")
 
-    def run(self, height, duration):
+    def run(self, height, duration, waypoint_x=0.0):
         completed = False
         try:
             self.arm_attempted = True  # Set BEFORE the request, including exceptions in that request.
@@ -336,6 +345,11 @@ class PositionFlight:
                         lambda t: min(height, VERTICAL_SPEED_M_S * t), "takeoff")
             self.stream(HOVER_SETTLE_S, lambda _: height, "settle")
             self.stream(duration, lambda _: height, "hover")
+            if waypoint_x:
+                self.x = waypoint_x
+                self.stream(duration, lambda _: height, "waypoint")
+                self.x = 0.0
+                self.stream(duration, lambda _: height, "return")
             completed = True
         finally:
             if self.arm_attempted:
@@ -362,7 +376,16 @@ def parse_args(argv=None):
     p.add_argument("--metadata", type=Path, help="Session JSON, see session.example.json")
     p.add_argument("--ranger", action="store_true", help="Also log Multi-ranger front/back/left/right/up at at most 10 Hz")
     p.add_argument("--out", type=Path, default=REAL_DIR / "data")
+    p.add_argument("--horizontal", choices=("pid", "lqr"), default="pid",
+                   help="Both retain stabilizer.controller=1; LQR enables hlqr.enable")
+    p.add_argument("--lqr-log", action="store_true", help="Require additional patched-firmware LQR logs")
+    p.add_argument("--waypoint-x", type=float, default=0.,
+                   help="Optional supervised out-and-back X step, max +/-0.5 m; first validate hover")
     args = p.parse_args(argv)
+    if not math.isfinite(args.waypoint_x) or abs(args.waypoint_x) > .5:
+        p.error("--waypoint-x must be finite and within +/-0.5 m")
+    if args.waypoint_x and not args.height:
+        p.error("--waypoint-x requires a flight height")
     if not re.fullmatch(r"[A-Za-z0-9_-]+", args.name):
         p.error("--name must contain only letters, digits, _ or -")
     if not math.isfinite(args.duration) or not 0 < args.duration <= MAX_DURATION_S:
@@ -396,7 +419,8 @@ def checked_metadata(path):
 def collect(cf, args, session, directory):
     """Own all file/link resources, including partial logging startup failures."""
     origin = time.monotonic()
-    recorder = Recorder(cf, directory, args.period, origin, ranger=args.ranger)
+    recorder = Recorder(cf, directory, args.period, origin, ranger=args.ranger,
+                        lqr=args.lqr_log or args.horizontal == "lqr")
     meta = {"schema_version": 1, "start_time_utc": datetime.now(timezone.utc).isoformat(),
             "arguments": {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()},
             "session": session, "cflib_version": importlib.metadata.version("cflib"),
@@ -441,6 +465,15 @@ def collect(cf, args, session, directory):
                     raise RuntimeError("Floor-origin experiment requires kalman.initialX/Y/Z/Yaw = 0")
             set_confirmed(cf, "stabilizer.estimator", 2)
             set_confirmed(cf, "stabilizer.controller", 1)
+            # LQR is a horizontal replacement INSIDE PID; Z/attitude/rate are retained.
+            has_lqr = "hlqr" in cf.param.values
+            if args.horizontal == "lqr" and not has_lqr:
+                raise RuntimeError("Firmware lacks hlqr.enable; build and flash the LQR changes first")
+            if has_lqr:
+                set_confirmed(cf, "hlqr.brake", 0)
+                set_confirmed(cf, "hlqr.enable", int(args.horizontal == "lqr"))
+            set_confirmed(cf, "posCtlPid.rLimit", 10)
+            set_confirmed(cf, "posCtlPid.pLimit", 10)
         meta["parameters_active"] = parameter_snapshot(cf)
         recorder.start()
         recorder.wait_ready()
@@ -465,7 +498,7 @@ def collect(cf, args, session, directory):
                 writer = csv.writer(file)
                 writer.writerow(["host_elapsed_s", "phase", "x_m", "y_m", "z_m", "yaw_deg"])
                 flight = PositionFlight(cf, recorder, event, writer)
-                flight.run(args.height, args.duration)
+                flight.run(args.height, args.duration, waypoint_x=args.waypoint_x)
             event("post_landing")
             end = time.monotonic() + 1
             wait_for(lambda: time.monotonic() >= end, 2, "Post-landing logging", recorder.check)
