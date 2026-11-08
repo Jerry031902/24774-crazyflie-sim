@@ -148,7 +148,7 @@ event = '';
 d = point - pos;
 dist = norm(d);
 
-if dist <= p.nav.yaw_free_radius && (~isfield(p,'safety') || ~p.safety.enabled)
+if dist <= p.nav.yaw_free_radius && ~isfield(nav, 'ranger_frame') && (~isfield(p,'safety') || ~p.safety.enabled)
     % The last few centimetres: slide straight onto the point, no turning.
     cmd = command(0, 0, 0);
     cmd.u = min(p.nav.v_cruise, p.nav.k_stop * dist) * (rot2d(psi)' * d) / dist;
@@ -194,7 +194,8 @@ stop_at = p.nav.d_wall;
 if short_of_point
     stop_at = d_block;         % come to rest where the drone will stop and look
 end
-speed_cmd = min([p.nav.v_cruise, p.nav.k_stop * dist, p.nav.k_stop * max(front - stop_at, 0)]);
+speed_cmd = min([p.nav.v_cruise, p.nav.k_stop * dist, p.nav.k_stop * max(front - stop_at, 0), ...
+                 side_speed(ranges([2 4]), p)]);
 cmd = command(1, speed_cmd, yaw_command(err, p));   % keep the nose on the point
 end
 
@@ -530,6 +531,9 @@ end
 % (not while braking for a turn just decided).
 front_s = k;                              % ranger ahead, and on the wall side
 wall_s  = toward(k, nav.hand);
+if flying && strcmp(nav.phase, 'follow')
+    nav = fit_wall(nav, pos, ranges, k, wall_s, p);
+end
 if flying
     if nav.near.open(wall_s)
         nav.wall_seen = true;
@@ -555,12 +559,58 @@ end
 k = nav.travel_dir;
 speed_cmd = 0;                             % unknown ahead: wait for a reading
 if ~isnan(ranges(k))
-    speed_cmd = min(p.nav.v_follow, p.nav.k_stop * max(ranges(k) - p.nav.d_wall, 0));
+    speed_cmd = min([p.nav.v_follow, p.nav.k_stop * max(ranges(k) - p.nav.d_wall, 0), ...
+                     max(side_speed(ranges(away(k, nav.hand)), p), p.nav.v_turn)]);
 end
 if strcmp(nav.phase, 'overshoot')
     speed_cmd = min(speed_cmd, p.nav.k_stop * max(nav.overshoot_left, 0));
 end
 cmd = command(k, speed_cmd, hold_rate);
+end
+
+function v = side_speed(readings, p)
+% Speed limit passing close to side obstacles: k_stop times the nearest
+% reading's distance past d_close. Unknown (NaN) readings set no limit.
+known = readings(~isnan(readings));
+if isempty(known)
+    v = inf;
+else
+    v = p.nav.k_stop * max(min(known) - p.nav.d_close, 0);
+end
+end
+
+function nav = fit_wall(nav, pos, ranges, k, wall_s, p)
+% Turn psi_hold parallel to the wall, from successive wall-side readings.
+% Each new ranger frame gives a wall point in the world frame (the reading
+% along the wall-side ranger at the yaw it was taken at). Once the drone has
+% moved wall_fit_travel along the wall, the line between two points is the
+% wall's direction: psi_hold turns wall_fit_gain of the way to flying
+% parallel to it, unless that is more than wall_fit_max away.
+if ~isfield(nav, 'ranger_frame') || nav.ranger_frame.seq == nav.fit_seq
+    return
+end
+nav.fit_seq = nav.ranger_frame.seq;
+r = ranges(wall_s);
+if ~(isfinite(r) && nav.near.open(wall_s))
+    nav.fit_dir = 0;                        % no wall beside, or no reading of it
+    return
+end
+D = dirs();
+point = pos + rot2d(nav.ranger_frame.psi) * D(wall_s,:)' * r;
+if nav.fit_dir ~= k
+    nav.fit_dir = k;
+else
+    if norm(pos - nav.fit_anchor(3:4)') < p.nav.wall_fit_travel
+        return
+    end
+    w = point - nav.fit_anchor(1:2)';
+    hold_yaw = atan2(w(2), w(1)) - atan2(D(k,2), D(k,1));   % travel_dir along the wall
+    err = wrap_to_pi(hold_yaw - nav.psi_hold);
+    if abs(err) <= p.nav.wall_fit_max
+        nav.psi_hold = wrap_to_pi(nav.psi_hold + p.nav.wall_fit_gain * err);
+    end
+end
+nav.fit_anchor = [point' pos'];
 end
 
 function free = free_toward(rel, ranges, p)
@@ -637,7 +687,8 @@ end
 function nav = start_follow(nav, psi, hand)
 nav.phase      = 'align';
 nav.hand       = hand;
-nav.psi_hold   = round(psi / (pi/2)) * (pi/2);   % nearest room axis
+nav.psi_hold   = round(psi / (pi/2)) * (pi/2);   % nearest room axis, until fitted
+nav.fit_dir    = 0;
 nav.d_followed = inf;
 nav.following  = false;
 nav.wall_seen  = false;

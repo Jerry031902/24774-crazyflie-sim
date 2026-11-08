@@ -115,6 +115,30 @@ u = navigator_step(nav, [0; 0; 0; 0], 0, [3; Inf; Inf; Inf], 0.02, p);
 verifyEqual(tc, u, [p.nav.v_cruise; 0], 'AbsTol', 1e-12);
 end
 
+function testSlowsDownPassingCloseToASideObstacle(tc)
+p = tc.TestData.p;
+nav = navigator_init([0 0], [5 0]);
+u = navigator_step(nav, [0; 0; 0; 0], 0, [3; 0.40; Inf; Inf], 0, p);
+verifyEqual(tc, u, [p.nav.k_stop * (0.40 - p.nav.d_close); 0], 'AbsTol', 1e-12);
+end
+
+function testWallFollowingTurnsParallelToTheWall(tc)
+% Following a wall on the left that closes in at 10 deg: successive left
+% readings fit its direction and psi_hold turns to match it.
+p = tc.TestData.p;
+nav = navigator_init([0 0], [-5 0]);
+nav.mode = 'AVOID'; nav.phase = 'follow'; nav.episode = true; nav.hit_dist = 0;
+nav.hand = 1; nav.travel_dir = 1; nav.exec_dir = 1; nav.following = true; nav.wall_seen = true;
+slope = tan(deg2rad(10));
+for seq = 1:39
+    px = 0.03 * seq;
+    ranges = [Inf; 0.45 - slope * px; Inf; Inf];
+    frame = ranger_frame(ranges, 0.1 * seq, 0.1 * seq + 0.1, [px; 0], 0, seq);
+    [~, ~, nav] = navigator_step(nav, [px; 0; 0.3; 0], 0, ranges, 0.1 * seq, p, frame);
+end
+verifyEqual(tc, rad2deg(nav.psi_hold), -10, 'AbsTol', 0.5);
+end
+
 function testRangerMaxRangeAndCone(tc)
 p = tc.TestData.p;
 env = make_environment(p, {obstacle_rect([5 4.2], [0.2 0.2])});   % small block just off the centre line

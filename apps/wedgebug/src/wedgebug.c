@@ -138,7 +138,8 @@ static void startSweep(wedgebug_t* nav, float psi) {
 static void startFollow(wedgebug_t* nav, float psi, int hand) {
   nav->phase = WEDGEBUG_PHASE_ALIGN;
   nav->hand = hand;
-  nav->psiHold = roundHalfAway(psi / (PI_F / 2.0f)) * (PI_F / 2.0f);  // nearest room axis
+  nav->psiHold = roundHalfAway(psi / (PI_F / 2.0f)) * (PI_F / 2.0f);  // nearest room axis, until fitted
+  nav->fitDir = 0;
   nav->dFollowed = INFINITY;
   nav->following = false;
   nav->wallSeen = false;
@@ -182,6 +183,18 @@ static void updateNear(wedgebug_t* nav, const float* r) {
       }
     }
   }
+}
+
+// Speed limit passing close to side obstacles: kStop x the nearest known
+// reading's distance past dClose. Unknown (NAN) readings set no limit.
+static float sideSpeed(const wedgebugParams_t* p, const float* r, int n) {
+  float best = INFINITY;
+  for (int i = 0; i < n; i++) {
+    if (!isnan(r[i])) {
+      best = fminf(best, r[i]);
+    }
+  }
+  return p->kStop * fmaxf(best - p->dClose, 0.0f);  // INFINITY when nothing is known
 }
 
 // ----- fly_to -----------------------------------------------------------------
@@ -241,7 +254,9 @@ static command_t flyTo(wedgebug_t* nav, const float* pos, float psi, float speed
   }
 
   const float stopAt = shortOfPoint ? dBlock : p->dWall;  // come to rest where it will stop and look
-  const float speedCmd = fminf(fminf(p->vCruise, p->kStop * dist), p->kStop * fmaxf(front - stopAt, 0.0f));
+  const float sides[2] = {r[1], r[3]};
+  const float speedCmd = fminf(fminf(fminf(p->vCruise, p->kStop * dist), p->kStop * fmaxf(front - stopAt, 0.0f)),
+                               sideSpeed(p, sides, 2));
   return command(1, speedCmd, yawCommand(p, err));  // keep the nose on the point
 }
 
@@ -614,6 +629,45 @@ static float freeToward(const wedgebugParams_t* p, float relX, float relY, const
   return fmaxf(best - p->dWall, 0.0f);
 }
 
+// Turn psiHold parallel to the wall, from successive wall-side readings.
+// Each new measurement gives a wall point in the world frame (the reading
+// along the wall-side ranger at the yaw it was taken at). Once the drone has
+// moved wallFitTravel along the wall, the line between two points is the
+// wall's direction: psiHold turns wallFitGain of the way to flying parallel
+// to it, unless that is more than wallFitMax away.
+static void fitWall(wedgebug_t* nav, const float* pos, const float* r, int k, int wallS) {
+  const wedgebugParams_t* p = &nav->params;
+  if (!nav->timestampedRanges || nav->rangerSequence == nav->fitSequence) {
+    return;
+  }
+  nav->fitSequence = nav->rangerSequence;
+  const float rw = r[wallS];
+  if (!(isfinite(rw) && nav->near[WEDGEBUG_NEAR_OPEN][wallS])) {
+    nav->fitDir = 0;  // no wall beside, or no reading of it
+    return;
+  }
+  const float c = cosf(nav->rangerSampleYaw), s = sinf(nav->rangerSampleYaw);
+  const float bx = DIRS[wallS][0] * rw, by = DIRS[wallS][1] * rw;
+  const float point[2] = {pos[0] + c * bx - s * by, pos[1] + s * bx + c * by};
+  if (nav->fitDir != k) {
+    nav->fitDir = k;
+  } else {
+    if (norm2(pos[0] - nav->fitAnchor[2], pos[1] - nav->fitAnchor[3]) < p->wallFitTravel) {
+      return;
+    }
+    const float hold = atan2f(point[1] - nav->fitAnchor[1], point[0] - nav->fitAnchor[0]) -
+                       atan2f(DIRS[k - 1][1], DIRS[k - 1][0]);  // travelDir along the wall
+    const float err = wrapToPi(hold - nav->psiHold);
+    if (fabsf(err) <= p->wallFitMax) {
+      nav->psiHold = wrapToPi(nav->psiHold + p->wallFitGain * err);
+    }
+  }
+  nav->fitAnchor[0] = point[0];
+  nav->fitAnchor[1] = point[1];
+  nav->fitAnchor[2] = pos[0];
+  nav->fitAnchor[3] = pos[1];
+}
+
 static command_t follow(wedgebug_t* nav, const float* pos, float psi, float speed, const float* r, float moved,
                         float t, bool* switched) {
   const wedgebugParams_t* p = &nav->params;
@@ -696,6 +750,9 @@ static command_t follow(wedgebug_t* nav, const float* pos, float psi, float spee
 
   // Wall-following rules, only while actually flying the travel direction.
   const int frontS = k - 1, wallS = toward(k, nav->hand) - 1;  // ranger ahead, and on the wall side
+  if (flying && nav->phase == WEDGEBUG_PHASE_FOLLOW) {
+    fitWall(nav, pos, r, k, wallS);
+  }
   if (flying) {
     if (nav->near[WEDGEBUG_NEAR_OPEN][wallS]) {
       nav->wallSeen = true;
@@ -720,7 +777,9 @@ static command_t follow(wedgebug_t* nav, const float* pos, float psi, float spee
   k = nav->travelDir;
   float speedCmd = 0.0f;  // unknown ahead: wait for a reading
   if (!isnan(r[k - 1])) {
-    speedCmd = fminf(p->vFollow, p->kStop * fmaxf(r[k - 1] - p->dWall, 0.0f));
+    const float awaySide = r[away(k, nav->hand) - 1];
+    speedCmd = fminf(fminf(p->vFollow, p->kStop * fmaxf(r[k - 1] - p->dWall, 0.0f)),
+                     fmaxf(sideSpeed(p, &awaySide, 1), p->vTurn));
   }
   if (nav->phase == WEDGEBUG_PHASE_OVERSHOOT) {
     speedCmd = fminf(speedCmd, p->kStop * fmaxf(nav->overshootLeft, 0.0f));
@@ -772,6 +831,9 @@ void wedgebugDefaultParams(wedgebugParams_t* p) {
   p->loopTol = 0.15f;
   p->loopMinTravel = 1.0f;
   p->hysteresis = 0.05f;
+  p->wallFitTravel = 0.10f;
+  p->wallFitMax = DEG_TO_RAD(30.0f);
+  p->wallFitGain = 0.5f;
 }
 
 void wedgebugInit(wedgebug_t* nav, const wedgebugParams_t* params, float startX, float startY) {

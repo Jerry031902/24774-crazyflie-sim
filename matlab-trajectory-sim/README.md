@@ -105,6 +105,14 @@ Every rule above that compares a reading with a distance (`d_side`, `d_sweep`, `
 
 A reading of `NaN` is unknown (an invalid reading). It changes no rule's state, never counts as free space (not an edge in a sweep, not a clear way, not a reason to leave a wall) or as an obstacle, and the drone does not fly toward it until that ranger reads again. If every reading straight ahead in a sweep is unknown, the way counts as blocked.
 
+**Readings paired with their heading, wall fit, and passing speed**
+
+`run_simulation` gives the navigator each ranger frame (`ranger_frame`: sequence number, measurement time and the yaw it was measured at), with Safety on or off.
+
+- **Sweeps** log each frame once, at the yaw it was measured at, not the yaw when it arrived 100 ms later. They wait at both ends of the wedge for a frame measured there. The final slide onto a target without turning is replaced by flying nose first.
+- **Wall-following** starts square to the nearest room axis, then fits the wall's direction from successive wall-side readings. Each frame gives a wall point; once the drone has moved `wall_fit_travel` (0.1 m), the line between two points is the wall. `psi_hold` turns `wall_fit_gain` (half) of the way to parallel, ignoring fits more than `wall_fit_max` (30°) off, such as at corners. Rotated walls are followed along their length, not along a room axis.
+- **Passing speed:** flying to a point, the speed is at most `k_stop` × (nearest side reading − `d_close`), the same rule as for obstacles ahead, so the drone slows down passing close to an obstacle beside it. Wall-following applies it to the side away from the wall, never below `v_turn`.
+
 ## Model
 
 State `x = [px; py; vx; vy]`, yaw `psi`, and a command of `u_body = [forward; left]` plus a yaw rate `r`:
@@ -133,8 +141,9 @@ The deck's fifth (up) sensor is not modelled in 2-D. The room walls are visible 
 `noise_study(start, waypoints, goal, obstacles, p)` flies one mission 10 times at each noise level, 0, 1, 2, 5, 10 and 20 cm std dev, with a different random seed for each run. It prints a summary and plots outcome, closest approach, time to goal and sweeps against the noise level. The last section of `main.m` runs it on the mission defined there.
 
 With safety supervision disabled, the hardware ranger timing and sensor
-positions, and 0.05 m hysteresis, the 0 cm run takes 78.8 s with a closest
-gap of 0.07 m (2-D Python port, which matches MATLAB exactly without noise).
+positions, 0.05 m hysteresis, readings paired with their heading, the wall
+fit and the passing-speed limit, the 0 cm run takes 73.3 s with a closest
+gap of 0.13 m (2-D Python port, which matches MATLAB exactly without noise).
 The table below is historical: it was measured with the original navigator
 and the previous ranger model (25 Hz, no delay, sensors at the body centre,
 no hysteresis). Run `safety_validation` for a current on/off comparison, or

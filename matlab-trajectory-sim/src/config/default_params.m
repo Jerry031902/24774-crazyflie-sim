@@ -73,6 +73,9 @@ p.nav.leave_margin  = 0.10;  % leave the wall only this much closer to the targe
 p.nav.loop_tol      = 0.15;  % back within this of where wall-following began...  [m]
 p.nav.loop_min_travel = 1.0; % ...after following at least this far = full loop, unreachable [m]
 p.nav.hysteresis      = 0.05; % a reading must pass a threshold by this much to undo its decision [m]
+p.nav.wall_fit_travel = 0.10; % wall-following: travel between two wall readings used to fit the wall [m]
+p.nav.wall_fit_max    = deg2rad(30); % ...ignore fits further than this from the held yaw (a corner) [rad]
+p.nav.wall_fit_gain   = 0.5;  % ...and turn this fraction of the way to parallel per fit [-]
 
 % Safety supervisor. Independent of the navigator's mode; no map is used.
 p.safety.enabled = true;

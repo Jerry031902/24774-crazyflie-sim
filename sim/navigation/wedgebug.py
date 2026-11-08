@@ -4,12 +4,17 @@ Line-by-line port of matlab-trajectory-sim/src/nav/navigator_init.m and
 navigator_step.m; see that folder's README for the algorithm. Inputs and
 outputs are the Crazyflie hover setpoint without height:
 
-    u_body, yaw_rate = nav.step(x, psi, ranges, t)
+    u_body, yaw_rate = nav.step(x, psi, ranges, t, frame=None)
 
     x        [px, py, vx, vy], world frame [m, m/s]
     psi      yaw [rad], counter-clockwise from +x
     ranges   [front, left, back, right] Multi-ranger readings [m], inf = no return,
              nan = invalid reading (unknown: neither free space nor an obstacle)
+    frame    the ranger measurement those ranges came from (RangerFrame, or
+             safety.core.RangeFrame): its sequence number and the yaw when it
+             was measured. With it, sweeps log each measurement once at that
+             yaw, wall-following fits the wall's direction, and the final
+             slide onto a target is replaced by flying nose first.
     u_body   commanded velocity [forward, left] in the body frame [m/s]
     yaw_rate commanded yaw rate [rad/s], counter-clockwise positive
 
@@ -30,6 +35,15 @@ MODES = ("GO_TO_GOAL", "AVOID", "DONE")
 PHASES = ("sweep", "pass", "align", "follow", "overshoot")
 # Unit vectors of directions 1..4 (forward, left, back, right) in the body frame.
 DIRS = np.array([[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0], [0.0, -1.0]])
+
+
+@dataclass
+class RangerFrame:
+    """One Multi-ranger measurement as delivered; the fields the navigator reads from safety.core.RangeFrame."""
+    seq: int                 # 1, 2, ... per measurement; 0 = none yet
+    sample_time: float       # when it was measured [s]
+    yaw: float               # heading when it was measured [rad]
+    ranges: np.ndarray       # [front, left, back, right] [m]
 
 
 @dataclass
@@ -122,6 +136,8 @@ class WedgeBugNavigator:
         self.safety_enabled = False
         self.ranger_frame = None
         self.scan_seq = 0
+        self.fit_seq = 0               # last frame used by the wall fit
+        self.fit_anchor = None         # (wall point, position, travel_dir) of the previous fit reading
 
     def prepare_safety(self):
         self.safety_enabled = True
@@ -229,7 +245,7 @@ class WedgeBugNavigator:
         d = point - pos
         dist = float(np.linalg.norm(d))
 
-        if dist <= nav.yaw_free_radius and not self.safety_enabled:
+        if dist <= nav.yaw_free_radius and self.ranger_frame is None and not self.safety_enabled:
             # The last few centimetres: slide straight onto the point, no turning.
             cmd = _Command(0, 0.0, 0.0)
             if dist > 0:
@@ -258,7 +274,8 @@ class WedgeBugNavigator:
             return _Command(1, 0.0, self._yaw_command(err)), ""   # unknown ahead: wait for a reading
 
         stop_at = d_block if short_of_point else nav.d_wall   # come to rest where it will stop and look
-        speed_cmd = min(nav.v_cruise, nav.k_stop * dist, nav.k_stop * max(front - stop_at, 0.0))
+        speed_cmd = min(nav.v_cruise, nav.k_stop * dist, nav.k_stop * max(front - stop_at, 0.0),
+                        self._side_speed(ranges[[1, 3]]))
         return _Command(1, speed_cmd, self._yaw_command(err)), ""   # keep the nose on the point
 
     # ==================================================================
@@ -514,6 +531,8 @@ class WedgeBugNavigator:
         # Wall-following rules, only while actually flying the travel direction.
         front_s = k - 1                                # ranger ahead, and on the wall side
         wall_s = _toward(k, self.hand) - 1
+        if flying and self.phase == "follow":
+            self._fit_wall(pos, ranges, k, wall_s)
         if flying:
             if self.near["open"][wall_s]:
                 self.wall_seen = True
@@ -534,10 +553,53 @@ class WedgeBugNavigator:
         k = self.travel_dir
         speed_cmd = 0.0                                # unknown ahead: wait for a reading
         if not math.isnan(ranges[k - 1]):
-            speed_cmd = min(nav.v_follow, nav.k_stop * max(ranges[k - 1] - nav.d_wall, 0.0))
+            speed_cmd = min(nav.v_follow, nav.k_stop * max(ranges[k - 1] - nav.d_wall, 0.0),
+                            max(self._side_speed([ranges[_away(k, self.hand) - 1]]), nav.v_turn))
         if self.phase == "overshoot":
             speed_cmd = min(speed_cmd, nav.k_stop * max(self.overshoot_left, 0.0))
         return _Command(k, speed_cmd, hold_rate), False
+
+    def _side_speed(self, readings):
+        """Speed limit passing close to side obstacles: k_stop x the reading's distance past d_close.
+
+        Unknown (nan) readings set no limit.
+        """
+        known = [r for r in readings if not math.isnan(r)]
+        if not known:
+            return math.inf
+        return self.p.nav.k_stop * max(min(known) - self.p.nav.d_close, 0.0)
+
+    def _fit_wall(self, pos, ranges, k, wall_s):
+        """Turn psi_hold parallel to the wall, from successive wall-side readings.
+
+        Each new measurement gives a wall point in the world frame (the reading
+        along the wall-side ranger at the yaw it was taken at). Once the drone
+        has moved wall_fit_travel along the wall, the line between two points
+        is the wall's direction: psi_hold turns wall_fit_gain of the way to
+        flying parallel to it, unless that is more than wall_fit_max away.
+        """
+        nav = self.p.nav
+        frame = self.ranger_frame
+        if frame is None or frame.seq == self.fit_seq:
+            return
+        self.fit_seq = frame.seq
+        r = ranges[wall_s]
+        if not (math.isfinite(r) and self.near["open"][wall_s]):
+            self.fit_anchor = None                     # no wall beside, or no reading of it
+            return
+        point = pos + rot2d(frame.yaw) @ DIRS[wall_s] * r
+        if self.fit_anchor is None or self.fit_anchor[2] != k:
+            self.fit_anchor = (point, pos.copy(), k)
+            return
+        a_point, a_pos, _ = self.fit_anchor
+        if np.linalg.norm(pos - a_pos) < nav.wall_fit_travel:
+            return
+        w = point - a_point
+        hold = math.atan2(w[1], w[0]) - math.atan2(DIRS[k - 1][1], DIRS[k - 1][0])   # travel_dir along the wall
+        err = float(wrap_to_pi(hold - self.psi_hold))
+        if abs(err) <= nav.wall_fit_max:
+            self.psi_hold = float(wrap_to_pi(self.psi_hold + nav.wall_fit_gain * err))
+        self.fit_anchor = (point, pos.copy(), k)
 
     def _free_toward(self, rel, ranges):
         """How far the drone can see it could fly toward the target (rel, body frame)."""
@@ -598,7 +660,8 @@ class WedgeBugNavigator:
     def _start_follow(self, psi, hand):
         self.phase = "align"
         self.hand = hand
-        self.psi_hold = _round_half_away(psi / (math.pi / 2)) * (math.pi / 2)   # nearest room axis
+        self.psi_hold = _round_half_away(psi / (math.pi / 2)) * (math.pi / 2)   # nearest room axis, until fitted
+        self.fit_anchor = None
         self.d_followed = math.inf
         self.following = False
         self.wall_seen = False

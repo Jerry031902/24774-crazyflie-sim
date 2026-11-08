@@ -42,6 +42,9 @@ nav.since_turn     = 0;          % distance flown since the last turn
 nav.wall_seen      = false;      % the wall-side ranger has seen the wall since the last turn
 nav.overshoot_left = 0;          % remaining travel past a wall's end
 nav.d_followed     = inf;        % closest the followed wall has come to the target
+nav.fit_seq        = 0;          % wall fit: last ranger frame used...
+nav.fit_dir        = 0;          % ...travel direction of fit_anchor, 0 = none
+nav.fit_anchor     = nan(1, 4);  % ...and the previous wall point [x y] and drone position [x y]
 
 % Per rule and ranger: the reading is at or below the rule's threshold,
 % with hysteresis (see update_near in NAVIGATOR_STEP).

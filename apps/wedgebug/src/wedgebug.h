@@ -104,6 +104,9 @@ typedef struct {
   float loopTol;           // back within this of where wall-following began... [m]
   float loopMinTravel;     // ...after following this far = full loop [m]
   float hysteresis;        // a reading must pass a threshold by this much to undo its decision [m]
+  float wallFitTravel;     // wall-following: travel between two wall readings used to fit the wall [m]
+  float wallFitMax;        // ...ignore fits further than this from the held yaw (a corner) [rad]
+  float wallFitGain;       // ...and turn this fraction of the way to parallel per fit [-]
 } wedgebugParams_t;
 
 typedef struct {
@@ -188,6 +191,11 @@ typedef struct {
   // Per rule (wedgebugNearRule_t) and ranger (front, left, back, right): the
   // reading is at or below the rule's threshold, with hysteresis.
   bool near[WEDGEBUG_NEAR_RULES][4];
+
+  // Wall fit (timestamped ranges only): the previous wall reading used.
+  uint32_t fitSequence;
+  int fitDir;              // travel direction of fitAnchor; 0 = none
+  float fitAnchor[4];      // wall point x, y and drone position x, y [m]
 
   // Diagnostics: events raised by the last step, and the last sweep.
   wedgebugEvent_t stepEvents[WEDGEBUG_MAX_STEP_EVENTS];

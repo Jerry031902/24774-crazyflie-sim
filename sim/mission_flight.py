@@ -59,12 +59,15 @@ class WedgeBugMission:
     def reset(self):
         m = self.mission
         self.nav = make_navigator(self.backend, m.start, m.targets, self.p)
+        from safety import EstimatedRangeTransport
+        # Pairs each ranger frame with the pose it was measured at, with or without Safety.
+        self.range_transport = EstimatedRangeTransport()
         self.safety = self.safety_transport = None
         if self.safety_config is not None:
-            from safety import SafetySupervisor, EstimatedRangeTransport, RangeFrame
+            from safety import SafetySupervisor, RangeFrame
             self.nav.prepare_safety()
             self.safety = SafetySupervisor(self.safety_config)
-            self.safety_transport = EstimatedRangeTransport()
+            self.safety_transport = self.range_transport
             self.safety_frame = RangeFrame.unavailable()
         self.phase = "takeoff"
         self.done = False
@@ -106,11 +109,9 @@ class WedgeBugMission:
     def target(self, state):
         now = float(state["time_s"])
         x, psi, z, vz = self._nav_state(state)
-        observation = None
-        if self.safety is not None:
-            # In closed loop this is the same ESTIMATE the PID sees, not PhysX truth.
-            source = self.estimate if self.use_estimate and self.estimate is not None else state
-            observation = self.safety_transport.observe(now, source)
+        # In closed loop this is the same ESTIMATE the PID sees, not PhysX truth.
+        source = self.estimate if self.use_estimate and self.estimate is not None else state
+        observation = self.range_transport.observe(now, source)
         start = self.mission.start
 
         if self.phase == "takeoff":
@@ -134,7 +135,10 @@ class WedgeBugMission:
                 # The deck measures from the TRUE pose, whatever the estimate says.
                 if self.safety is None:
                     self.ranges = deck_ranges(state["ranger"])
-                    self.u_body, self.yaw_rate = self.nav.step(x, psi, self.ranges, t_nav)
+                    frame = self.range_transport.frame(state["ranger"])
+                    if frame.seq and not np.all(np.isfinite(frame.position)):
+                        frame = None              # no pose at its measurement time: no heading to pair it with
+                    self.u_body, self.yaw_rate = self.nav.step(x, psi, self.ranges, t_nav, frame)
                 else:
                     self.u_body, self.yaw_rate = self._safety_tick(observation, state, now)
                     self.ranges = self.safety.processor.ranges.copy()

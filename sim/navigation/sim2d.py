@@ -24,14 +24,14 @@ if __package__ in (None, ""):
         validate_waypoints, wrap_to_pi
     from navigation.missions import MISSIONS
     from navigation.params import default_params
-    from navigation.wedgebug import MODES, PHASES
+    from navigation.wedgebug import MODES, PHASES, RangerFrame
 else:
     from .firmware_nav import make_navigator
     from .geometry import obstacle_distance, read_rangers, rot2d, sat_norm, target_names, \
         validate_waypoints, wrap_to_pi
     from .missions import MISSIONS
     from .params import default_params
-    from .wedgebug import MODES, PHASES
+    from .wedgebug import MODES, PHASES, RangerFrame
 
 
 def dynamics_step(x, psi, u_body, yaw_rate, wind, p):
@@ -73,17 +73,22 @@ def run_simulation(start, waypoints, goal, env, p, backend="python"):
     gust = np.zeros(2)
     tau_g = 2.0
     next_read = 0.0
-    pending = []                   # (delivery time, ranges) measured but not yet read
-    ranges = np.full(4, np.inf)    # nothing delivered yet
+    pending = []                   # (delivery time, frame) measured but not yet read
+    frame = RangerFrame(0, -math.inf, math.nan, np.full(4, np.inf))   # nothing delivered yet
+    ranges = frame.ranges
+    seq = 0
     arrived = collided = False
     t_arrive = t_collide = math.nan
     for k in range(n):
         if t[k] >= next_read - 1e-9:
-            pending.append((t[k] + p.ranger.latency, read_rangers(x[0:2], psi, env, p, rng)))
+            seq += 1
+            pending.append((t[k] + p.ranger.latency,
+                            RangerFrame(seq, t[k], psi, read_rangers(x[0:2], psi, env, p, rng))))
             next_read += p.ranger.period
         while pending and pending[0][0] <= t[k] + 1e-9:
-            ranges = pending.pop(0)[1]
-        u_body, yaw_rate = nav.step(x, psi, ranges, t[k])
+            frame = pending.pop(0)[1]
+            ranges = frame.ranges
+        u_body, yaw_rate = nav.step(x, psi, ranges, t[k], frame)
         wind = np.asarray(p.wind, dtype=float) + gust
         cols["x"][k], cols["psi"][k], cols["ranges"][k] = x, psi, ranges
         cols["mode"][k] = MODES.index(nav.mode) + 1

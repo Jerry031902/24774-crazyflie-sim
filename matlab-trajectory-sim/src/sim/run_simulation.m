@@ -142,7 +142,7 @@ for k = 1:N
         SD(k) = d.primary.stop_distance;
         REQUIRED(k,:) = d.primary.required'; AVAILABLE(k,:) = d.primary.available';
     else
-        [u_body,yaw_rate,nav] = navigator_step(nav,x,psi,ranges,t(k),p);
+        [u_body,yaw_rate,nav] = navigator_step(nav,x,psi,ranges,t(k),p,frame);   % readings paired with their heading
         NOM(k,:) = u_body'; CAND(k,:) = u_body'; CYAW(k) = yaw_rate;
         PROC(k,:) = ranges'; AGE(k) = t(k)-frame.sample_time;
         GV(k,:) = x(3:4)';

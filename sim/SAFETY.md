@@ -40,9 +40,10 @@ RAW packet + health clocks -> independent Backup ----------------+-> arbiter
   not advance waypoints, scan buffers or events. Recovery after interrupted
   translation preserves target/episode history and clears the stale partial
   plan. A stationary scan pause is preserved.
-- With Safety on, scans count each raw frame once, use sample orientation/time,
-  and await fresh endpoint measurements. The unchecked final diagonal slide is
-  disabled. The off path keeps the legacy behavior.
+- Scans count each raw frame once, use sample orientation/time, and await
+  fresh endpoint measurements, and the unchecked final diagonal slide is
+  disabled, whenever the navigator is given timestamped frames. Missions and
+  the 2-D/MATLAB simulators now always pass them, with Safety on or off.
 
 Primary/Backup run in the same Python process. Heartbeat checks detect missing
 routine completions while the loop runs; they cannot actuate a brake if the

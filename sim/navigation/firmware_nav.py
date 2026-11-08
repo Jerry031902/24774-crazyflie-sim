@@ -21,7 +21,8 @@ _NAV_FIELDS = {
     "d_detect": "dDetect", "d_wall": "dWall", "d_open": "dOpen", "d_close": "dClose",
     "corner_margin": "cornerMargin", "v_turn": "vTurn", "wp_tol": "wpTol",
     "leave_margin": "leaveMargin", "loop_tol": "loopTol", "loop_min_travel": "loopMinTravel",
-    "hysteresis": "hysteresis",
+    "hysteresis": "hysteresis", "wall_fit_travel": "wallFitTravel", "wall_fit_max": "wallFitMax",
+    "wall_fit_gain": "wallFitGain",
 }
 EVENT_TYPES = {1: "hit", 2: "leave", 3: "reached", 4: "unreachable"}
 
@@ -146,7 +147,7 @@ class FirmwareWedgeBug:
                 i.rangerSequence, i.rangerSampleTime, i.rangerSampleYaw = frame.seq, frame.sample_time, frame.yaw
                 i.rawFront, i.rawLeft, i.rawRight = map(float, frame.ranges[[0, 1, 3]])
         elif frame is not None:
-            raise RuntimeError("Rebuild cffirmware for timestamped Safety inputs")
+            raise RuntimeError("Rebuild cffirmware (make bindings_python) for timestamped range inputs")
         i.t = float(t)
         i.x, i.y, i.vx, i.vy = map(float, x[:4])
         i.yaw = float(psi)

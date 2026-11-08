@@ -20,7 +20,7 @@ from navigation.geometry import (Environment, obstacle_circle, obstacle_rect, ob
 from navigation.missions import MATLAB_MAIN  # noqa: E402
 from navigation.params import default_params  # noqa: E402
 from navigation.sim2d import compute_metrics, run_simulation  # noqa: E402
-from navigation.wedgebug import WedgeBugNavigator  # noqa: E402
+from navigation.wedgebug import RangerFrame, WedgeBugNavigator  # noqa: E402
 
 try:
     import cffirmware as cf
@@ -107,6 +107,27 @@ class ReadingRuleTests(unittest.TestCase):
         u, _ = nav.step(np.zeros(4), 0.0, [3.0, math.inf, math.inf, math.inf], 0.02)
         np.testing.assert_allclose(u, [nav.p.nav.v_cruise, 0])
 
+    def test_slows_down_passing_close_to_a_side_obstacle(self):
+        nav = self.navigator()
+        u, _ = nav.step(np.zeros(4), 0.0, [3.0, 0.40, math.inf, math.inf], 0.0)
+        np.testing.assert_allclose(u, [nav.p.nav.k_stop * (0.40 - nav.p.nav.d_close), 0])
+        nav = self.navigator()
+        u, _ = nav.step(np.zeros(4), 0.0, [3.0, math.nan, math.inf, math.inf], 0.0)
+        np.testing.assert_allclose(u, [nav.p.nav.v_cruise, 0])
+
+    def test_wall_following_turns_parallel_to_the_wall(self):
+        # Following a wall on the left that closes in at 10 deg: successive
+        # left readings fit its direction and psi_hold turns to match it.
+        nav = WedgeBugNavigator((0, 0), [(-5, 0)], default_params())
+        nav.mode, nav.phase, nav.episode, nav.hit_dist = "AVOID", "follow", True, 0.0
+        nav.hand, nav.travel_dir, nav.exec_dir, nav.following, nav.wall_seen = 1, 1, 1, True, True
+        slope = math.tan(math.radians(10))
+        for seq in range(1, 40):
+            px = 0.03 * seq
+            frame = RangerFrame(seq, 0.1 * seq, 0.0, np.array([math.inf, 0.45 - slope * px, math.inf, math.inf]))
+            nav.step([px, 0.0, 0.3, 0.0], 0.0, frame.ranges, 0.1 * seq, frame)
+        self.assertAlmostEqual(math.degrees(nav.psi_hold), -10.0, delta=0.5)
+
     def test_unknown_is_neither_an_edge_nor_free_space(self):
         nav = self.navigator()
         nav.sweep_center = 0.0
@@ -128,7 +149,7 @@ class ReadingRuleTests(unittest.TestCase):
 
 class NavigationTests(unittest.TestCase):
     def test_matlab_main_mission_matches_matlab_results(self):
-        # matlab-trajectory-sim/README.md, 0 cm noise: 78.8 s, closest gap 0.07 m.
+        # matlab-trajectory-sim/README.md, 0 cm noise: 73.3 s, closest gap 0.13 m.
         for backend in BACKENDS:
             with self.subTest(backend=backend):
                 env = MATLAB_MAIN.environment()
@@ -136,8 +157,8 @@ class NavigationTests(unittest.TestCase):
                 self.assertTrue(m["arrived"])
                 self.assertFalse(m["collided"])
                 self.assertEqual(m["targets_reached"], 4)
-                self.assertAlmostEqual(m["t_finish"], 78.8, delta=0.1)
-                self.assertAlmostEqual(m["min_clearance"], 0.074, delta=0.01)
+                self.assertAlmostEqual(m["t_finish"], 73.3, delta=0.1)
+                self.assertAlmostEqual(m["min_clearance"], 0.126, delta=0.01)
 
     def test_open_room_flies_straight_line(self):
         a, b = np.array([1, 1]), np.array([8.5, 6.5])
