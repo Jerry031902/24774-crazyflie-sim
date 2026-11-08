@@ -163,7 +163,13 @@ static struct this_s this = {
 };
 #endif
 
-void positionControllerInit()
+bool positionControllerSetTiltLimit(float degrees) {
+  if (!isfinite(degrees) || degrees <= 0 || degrees > 30) return false;
+  rLimit = pLimit = degrees;
+  return true;
+}
+
+void positionControllerInit(void)
 {
   pidInit(&this.pidX.pid, this.pidX.setpoint, this.pidX.pid.kp, this.pidX.pid.ki, this.pidX.pid.kd,
       this.pidX.pid.kff, this.pidX.pid.dt, POSITION_RATE, posFiltCutoff, posFiltEnable);

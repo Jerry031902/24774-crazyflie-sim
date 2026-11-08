@@ -5,6 +5,7 @@
 #include "attitude_controller.h"
 #include "position_controller.h"
 #include "controller_pid.h"
+#include "horizontal_lqr.h"
 
 #include "log.h"
 #include "param.h"
@@ -29,7 +30,11 @@ void controllerPidInit(void)
 {
   attitudeControllerInit(ATTITUDE_UPDATE_DT);
   positionControllerInit();
+  horizontalLqrReset();
 }
+
+float controllerPidGetRollReference(void) { return attitudeDesired.roll; }
+float controllerPidGetPitchReference(void) { return attitudeDesired.pitch; }
 
 bool controllerPidTest(void)
 {
@@ -78,7 +83,11 @@ void controllerPid(control_t *control, const setpoint_t *setpoint,
 {
   control->controlMode = controlModeLegacy;
 
-  if (setpointModeChanged(setpoint)) {
+  static bool previousLqrEnabled;
+  const bool lqrEnabled = horizontalLqrGetEnabled();
+  const bool changedMode = setpointModeChanged(setpoint);
+  if (changedMode || previousLqrEnabled != lqrEnabled) {
+    previousLqrEnabled = lqrEnabled;
     controllerPidReinitialize(state); // To prevent control bump
   }
 
@@ -114,6 +123,8 @@ void controllerPid(control_t *control, const setpoint_t *setpoint,
 
   if (RATE_DO_EXECUTE(POSITION_RATE, stabilizerStep)) {
     positionController(&actuatorThrust, &attitudeDesired, setpoint, state);
+    // Replace ONLY horizontal angles. Stock Z thrust and all inner loops remain.
+    horizontalLqrUpdate(setpoint, state, &attitudeDesired);
   }
 
   if (RATE_DO_EXECUTE(ATTITUDE_RATE, stabilizerStep)) {

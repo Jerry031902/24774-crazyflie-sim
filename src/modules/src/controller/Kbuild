@@ -3,6 +3,7 @@ obj-y += controller_indi.o
 obj-y += controller_mellinger.o
 obj-y += controller.o
 obj-y += controller_pid.o
+obj-y += horizontal_lqr.o
 obj-y += controller_brescianini.o
 obj-y += position_controller_indi.o
 obj-y += position_controller_pid.o
