@@ -82,7 +82,7 @@ def assign_xyz(destination, values):
 
 
 class FirmwarePIDController(Controller):
-    """Call the unmodified C PID once per 1 ms simulation step.
+    """Call the firmware PID once per 1 ms; optionally replace its horizontal loop.
 
     Normal target: position_m (world XYZ, m), optional yaw_rad (RH yaw).
     Hover target: velocity_body_m_s (forward, left), yaw_rate_rad_s, and
@@ -92,12 +92,19 @@ class FirmwarePIDController(Controller):
     Output motor_commands contains raw, uncapped M1..M4 force commands, NOT PWM.
     """
 
-    def __init__(self, dt_s=0.001, gravity_m_s2=9.81, gyro_filter_hz=GYRO_LPF_CUTOFF_HZ):
+    def __init__(self, dt_s=0.001, gravity_m_s2=9.81, gyro_filter_hz=GYRO_LPF_CUTOFF_HZ,
+                 horizontal_lqr=False, tilt_limit_deg=10.0):
         try:
             import cffirmware
         except ImportError as exc:
             raise RuntimeError("Build cffirmware with Isaac Sim Python 3.11 and add build/ to PYTHONPATH") from exc
         self.cf = cffirmware
+        self.horizontal_lqr = bool(horizontal_lqr)
+        self.tilt_limit_deg = float(tilt_limit_deg)
+        if not math.isfinite(self.tilt_limit_deg) or not 0 < self.tilt_limit_deg <= 30:
+            raise ValueError("tilt_limit_deg must be in (0,30]")
+        if self.horizontal_lqr and self.tilt_limit_deg != 10.:
+            raise ValueError("Rebuild the LQR gains header to change its 10-degree axis limit")
         if not math.isclose(dt_s, 1.0 / cffirmware.RATE_MAIN_LOOP, rel_tol=0, abs_tol=1e-12):
             raise ValueError("Firmware PID requires a 1 kHz physics/control loop")
         if not math.isfinite(gravity_m_s2) or gravity_m_s2 <= 0:
@@ -110,6 +117,10 @@ class FirmwarePIDController(Controller):
 
     def reset(self):
         cf = self.cf
+        cf.horizontalLqrSetEnabled(self.horizontal_lqr)
+        cf.horizontalLqrSetBrake(False)
+        if not cf.positionControllerSetTiltLimit(self.tilt_limit_deg):
+            raise ValueError("Invalid firmware tilt limit")
         cf.controllerPidInit()
         self.firmware_state = cf.state_t()
         self.sensors = cf.sensorData_t()
@@ -245,6 +256,16 @@ class FirmwarePIDController(Controller):
             # yaw negation; controller_pid.c:104-109,149 performs its own mixing sign.
             sp.mode.yaw = cf.modeAbs
 
+        # Explicit override: zero velocity, discard stale XY waypoint, retain Z.
+        # An external safety supervisor owns when to assert/release this flag.
+        cf.horizontalLqrSetBrake(bool(target.get("brake", False)))
+        if target.get("brake", False) and "attitude_legacy_deg" not in target:
+            sp.mode.x = sp.mode.y = cf.modeVelocity
+            sp.velocity.x = sp.velocity.y = 0.
+            sp.velocity_body = False
+            sp.mode.yaw = cf.modeVelocity
+            sp.attitudeRate.yaw = 0.
+
         # The C code gates position on tick % 10, attitude/rate on tick % 2.
         # stabilizer_types.h:363-377; controller_pid.c:85,115,119.
         tick = self._steps & 0xFFFFFFFF
@@ -259,4 +280,12 @@ class FirmwarePIDController(Controller):
             "attitude_legacy_deg": legacy_deg,
             "gyro_body_deg_s": self.gyro_body_deg_s.copy(),
             "tick": tick,
+            "horizontal_control": {
+                "roll_ref_deg": float(cf.controllerPidGetRollReference()),
+                "pitch_ref_deg": float(cf.controllerPidGetPitchReference()),
+                "lqr_enabled": int(self.horizontal_lqr),
+                "lqr_mode": int(cf.horizontalLqrGetMode()),
+                "lqr_saturated": int(cf.horizontalLqrGetSaturated()),
+                "lqr_updates": int(cf.horizontalLqrGetUpdates()),
+            },
         }

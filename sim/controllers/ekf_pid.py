@@ -20,13 +20,14 @@ class EKFPIDController(Controller):
     The estimator's own bounds/reset supervisor IS preserved.
     """
 
-    def __init__(self, mode, noise=False, seed=DEFAULT_SEED, initial_xy_yaw=None):
+    def __init__(self, mode, noise=False, seed=DEFAULT_SEED, initial_xy_yaw=None,
+                 horizontal_lqr=False, delays_ms=None):
         if mode not in ("ekf_shadow", "ekf_closed_loop"):
             raise ValueError(mode)
         self.mode = mode
-        self.suite = SensorSuite(noise=noise, seed=seed)
+        self.suite = SensorSuite(noise=noise, seed=seed, delays_ms=delays_ms)
         self.ekf = FirmwareEKF(initial_xy_yaw)
-        self.pid = FirmwarePIDController()
+        self.pid = FirmwarePIDController(horizontal_lqr=horizontal_lqr)
         self.gyro_filter_hz = self.pid.gyro_filter_hz
         self.reset()
 
