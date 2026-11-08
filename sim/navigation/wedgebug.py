@@ -8,7 +8,8 @@ outputs are the Crazyflie hover setpoint without height:
 
     x        [px, py, vx, vy], world frame [m, m/s]
     psi      yaw [rad], counter-clockwise from +x
-    ranges   [front, left, back, right] Multi-ranger readings [m], inf = no return
+    ranges   [front, left, back, right] Multi-ranger readings [m], inf = no return,
+             nan = invalid reading (unknown: neither free space nor an obstacle)
     u_body   commanded velocity [forward, left] in the body frame [m/s]
     yaw_rate commanded yaw rate [rad/s], counter-clockwise positive
 
@@ -50,6 +51,14 @@ def _away(d, hand):
 
 def _round_half_away(x):
     return math.copysign(math.floor(abs(x) + 0.5), x)
+
+
+def _near_rules(nav):
+    """Thresholds the readings are latched against: (rule, threshold, strict <)."""
+    return (("side", nav.d_side, True), ("sweep", nav.d_sweep + 0.02, False),
+            ("detect", nav.d_detect + 0.02, False), ("wall", nav.d_wall + 0.02, False),
+            ("close", nav.d_close, True), ("open", nav.d_open, False),
+            ("align", nav.d_detect + nav.corner_margin, False))
 
 
 def _segment_distance(pts, a, b):
@@ -103,6 +112,9 @@ class WedgeBugNavigator:
         self.overshoot_left = 0.0
         self.d_followed = math.inf
 
+        # Per rule and ranger: reading at or below the rule's threshold (with hysteresis)
+        self.near = {name: np.zeros(4, dtype=bool) for name, _, _ in _near_rules(p.nav)}
+
         self.unreachable = []
         self.events = []               # dicts: t, type, pos, wp
         self.sweeps = []               # dicts: t, ang, rng, pos, center, edge, seen, cost, side, pass
@@ -115,6 +127,7 @@ class WedgeBugNavigator:
         p = self.p
         x = np.asarray(x, dtype=float)
         ranges = np.asarray(ranges, dtype=float)
+        self._update_near(ranges)
         pos = x[0:2].copy()
         speed = float(np.linalg.norm(x[2:4]))
         moved = float(np.linalg.norm(pos - self.last_pos))
@@ -162,7 +175,7 @@ class WedgeBugNavigator:
         target = self.target()
         if self.episode and np.linalg.norm(target - pos) < self.hit_dist - self.p.nav.leave_margin:
             self._end_episode()   # past the obstacle: the next one is a fresh start
-        cmd, event = self._fly_to(pos, psi, speed, ranges, target, self.p.nav.d_sweep)
+        cmd, event = self._fly_to(pos, psi, speed, ranges, target, self.p.nav.d_sweep, "sweep")
         if event == "blocked":
             self._start_avoid(pos, t)
             self._start_sweep(psi)
@@ -174,11 +187,12 @@ class WedgeBugNavigator:
             self._start_follow(psi, -1)
         return cmd, bool(event)
 
-    def _fly_to(self, pos, psi, speed, ranges, point, d_block):
+    def _fly_to(self, pos, psi, speed, ranges, point, d_block, block_rule):
         """Face point, then fly straight at it nose first.
 
-        event: 'blocked' (obstacle ahead, short of the point, within d_block),
-        'side_left' / 'side_right' (a side ranger below d_side), or ''.
+        event: 'blocked' (obstacle ahead, short of the point, within d_block;
+        latched as near[block_rule]), 'side_left' / 'side_right' (a side
+        ranger below d_side), or ''.
         """
         nav = self.p.nav
         d = point - pos
@@ -201,13 +215,16 @@ class WedgeBugNavigator:
             return _Command(1, 0.0, (speed < nav.v_turn) * self._yaw_command(err)), ""
 
         front = ranges[0]
-        short_of_point = front - nav.d_wall < dist - 0.02
-        if short_of_point and front <= d_block + 0.02:
+        known = not math.isnan(front)
+        short_of_point = known and front - nav.d_wall < dist - 0.02
+        if short_of_point and self.near[block_rule][0]:
             return _Command(1, 0.0, 0.0), "blocked"
-        if ranges[1] < nav.d_side:
+        if self.near["side"][1]:
             return _Command(1, 0.0, 0.0), "side_left"
-        if ranges[3] < nav.d_side:
+        if self.near["side"][3]:
             return _Command(1, 0.0, 0.0), "side_right"
+        if not known:
+            return _Command(1, 0.0, self._yaw_command(err)), ""   # unknown ahead: wait for a reading
 
         stop_at = d_block if short_of_point else nav.d_wall   # come to rest where it will stop and look
         speed_cmd = min(nav.v_cruise, nav.k_stop * dist, nav.k_stop * max(front - stop_at, 0.0))
@@ -311,7 +328,7 @@ class WedgeBugNavigator:
         v = Q - pos
         ang = np.asarray(self.scan["ang"])
         rng = np.asarray(self.scan["rng"])
-        on = np.abs(wrap_to_pi(math.atan2(v[1], v[0]) - ang)) <= self.p.ranger.fov / 2
+        on = (np.abs(wrap_to_pi(math.atan2(v[1], v[0]) - ang)) <= self.p.ranger.fov / 2) & ~np.isnan(rng)
         r = np.minimum(rng[on], self.p.ranger.range_max)
         return bool(np.any(np.linalg.norm(v) <= r - self.p.nav.d_wall))
 
@@ -322,6 +339,8 @@ class WedgeBugNavigator:
         outline before the range jumps up by more than edge_jump or returns
         nothing. Points sit half a cone inward of each reading, which puts an
         edge on the obstacle's corner rather than half a cone past it.
+        Unknown (nan) readings are left out: they are no evidence either way,
+        and if every reading straight ahead is unknown, the way is blocked.
         """
         p = self.p
         center = self.sweep_center
@@ -331,6 +350,12 @@ class WedgeBugNavigator:
         r = np.asarray(self.scan["rng"])[order]
         w = {"blocked": False, "edge": np.full((2, 2), np.nan), "seen": [False, False],
              "cost": [math.inf, math.inf], "outline": np.zeros((0, 2))}
+        known = ~np.isnan(r)
+        ahead = np.abs(rel) <= math.radians(10)
+        if ahead.any() and not (ahead & known).any():
+            w["blocked"] = True
+            return w
+        rel, r = rel[known], r[known]
         core = np.flatnonzero(np.abs(rel) <= math.radians(10))
         if core.size == 0:
             return w
@@ -374,7 +399,7 @@ class WedgeBugNavigator:
             return _Command(self.exec_dir, 0.0, 0.0), True
         # Only something close ahead counts: the corner being rounded sits
         # just beside this path and shows in the front cone from further out.
-        cmd, event = self._fly_to(pos, psi, speed, ranges, self.subgoal, nav.d_detect)
+        cmd, event = self._fly_to(pos, psi, speed, ranges, self.subgoal, nav.d_detect, "detect")
         if event == "blocked":
             self._start_sweep(psi)                     # more of the obstacle: look again from here
         elif event == "side_left":
@@ -395,11 +420,9 @@ class WedgeBugNavigator:
                 return _Command(self.exec_dir, 0.0, (speed < nav.v_turn) * hold_rate), False
             # Head for the obstacle along whichever of front, left, right sees it nearest.
             sides = (1, 2, 4)
-            readings = ranges[[0, 1, 3]]
-            i = int(np.argmin(readings))
-            self.travel_dir = sides[i]
-            if readings[i] > nav.d_detect + nav.corner_margin:
-                self.travel_dir = 1
+            known = [i for i in range(3) if not math.isnan(ranges[sides[i] - 1])]
+            i = min(known, key=lambda i: ranges[sides[i] - 1]) if known else 0
+            self.travel_dir = sides[i] if self.near["align"][sides[i] - 1] else 1
             self.phase = "follow"
             self.since_turn = 0.0
 
@@ -441,15 +464,15 @@ class WedgeBugNavigator:
             return _Command(k, 0.0, 0.0), True
 
         # Wall-following rules, only while actually flying the travel direction.
-        front = ranges[k - 1]
-        wall = ranges[_toward(k, self.hand) - 1]
+        front_s = k - 1                                # ranger ahead, and on the wall side
+        wall_s = _toward(k, self.hand) - 1
         if flying:
-            if wall <= nav.d_open:
+            if self.near["open"][wall_s]:
                 self.wall_seen = True
-            if front <= nav.d_wall + 0.02 or wall < nav.d_close:
+            if self.near["wall"][front_s] or self.near["close"][wall_s]:
                 self._turn(_away(k, self.hand), pos, True)        # blocked ahead, or too close to the wall
             elif self.phase == "follow":
-                if self.wall_seen and wall > nav.d_open:
+                if self.wall_seen and not self.near["open"][wall_s]:
                     self.phase = "overshoot"                       # the wall has ended
                     self.overshoot_left = nav.corner_margin
                 elif (self.following and not self.wall_seen
@@ -461,7 +484,9 @@ class WedgeBugNavigator:
                     self._turn(_toward(k, self.hand), pos, False)  # clear of the corner: turn back
 
         k = self.travel_dir
-        speed_cmd = min(nav.v_follow, nav.k_stop * max(ranges[k - 1] - nav.d_wall, 0.0))
+        speed_cmd = 0.0                                # unknown ahead: wait for a reading
+        if not math.isnan(ranges[k - 1]):
+            speed_cmd = min(nav.v_follow, nav.k_stop * max(ranges[k - 1] - nav.d_wall, 0.0))
         if self.phase == "overshoot":
             speed_cmd = min(speed_cmd, nav.k_stop * max(self.overshoot_left, 0.0))
         return _Command(k, speed_cmd, hold_rate), False
@@ -475,10 +500,32 @@ class WedgeBugNavigator:
         ang = np.arccos(np.clip(DIRS @ (rel / dist), -1, 1))   # sensor axis to target direction
         a = np.maximum(ang - p.ranger.fov / 2, 0)
         look = a < math.radians(80)
-        if not look.any() or np.all(np.isinf(ranges[look])):
+        if not look.any():
+            return math.inf
+        if np.isnan(ranges[look]).any():
+            return 0.0                                 # an unknown reading vouches for no free space
+        if np.all(np.isinf(ranges[look])):
             return math.inf
         r = np.minimum(ranges[look], p.ranger.range_max)
         return max(float(np.min(r / np.cos(a[look]))) - p.nav.d_wall, 0.0)
+
+    def _update_near(self, ranges):
+        """Latch each reading against each rule's threshold, with hysteresis.
+
+        A reading turns near on reaching the threshold and back only once it is
+        p.nav.hysteresis past it. Unknown (nan) readings change nothing.
+        """
+        h = self.p.nav.hysteresis
+        for name, threshold, strict in _near_rules(self.p.nav):
+            near = self.near[name]
+            for s in range(4):
+                r = ranges[s]
+                if math.isnan(r):
+                    continue
+                if near[s]:
+                    near[s] = not r > threshold + h
+                else:
+                    near[s] = r < threshold if strict else r <= threshold
 
     # ==================================================================
     def _start_avoid(self, pos, t):

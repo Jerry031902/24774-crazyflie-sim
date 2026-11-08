@@ -11,7 +11,9 @@ function r = read_rangers(pos, psi, env, p)
 %
 %   Each reading that hits something gets zero-mean Gaussian noise with
 %   standard deviation p.ranger.noise + p.ranger.noise_rel * range, drawn
-%   independently per sensor and per update.
+%   independently per sensor and per update. With probability
+%   p.ranger.p_invalid a reading is invalid: NaN, unknown, which the
+%   navigator treats as neither free space nor an obstacle.
 
 A = env.edges(:, 1:2);
 E = env.edges(:, 3:4) - A;
@@ -48,4 +50,7 @@ if p.ranger.resolution > 0
 end
 r(r > p.ranger.range_max) = inf;
 r = max(r, 0);
+if p.ranger.p_invalid > 0
+    r(rand(4, 1) < p.ranger.p_invalid) = NaN;   % invalid status: unknown, not "no return"
+end
 end

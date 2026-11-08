@@ -43,6 +43,11 @@ nav.wall_seen      = false;      % the wall-side ranger has seen the wall since 
 nav.overshoot_left = 0;          % remaining travel past a wall's end
 nav.d_followed     = inf;        % closest the followed wall has come to the target
 
+% Per rule and ranger: the reading is at or below the rule's threshold,
+% with hysteresis (see update_near in NAVIGATOR_STEP).
+nav.near = struct('side', false(1, 4), 'sweep', false(1, 4), 'detect', false(1, 4), ...
+                  'wall', false(1, 4), 'close', false(1, 4), 'open', false(1, 4), 'align', false(1, 4));
+
 nav.unreachable = zeros(1, 0);
 nav.events = struct('t', {}, 'type', {}, 'pos', {}, 'wp', {});
 nav.sweeps = struct('t', {}, 'ang', {}, 'rng', {}, 'pos', {}, 'center', {}, ...

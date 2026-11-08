@@ -29,9 +29,14 @@ NAV_RANGER_DIRECTIONS = ("front", "left", "back", "right")  # navigator order; "
 
 
 def deck_ranges(fields):
-    """[front, left, back, right] in metres from ranger.py's held telemetry; inf = no valid return."""
-    return np.array([fields[f"range.{name}"] / 1000 if fields[f"range_{name}_valid"] else math.inf
-                     for name in NAV_RANGER_DIRECTIONS])
+    """[front, left, back, right] in metres from ranger.py's held telemetry.
+
+    inf = no return within range; nan = an invalid reading, or none yet:
+    unknown, which the navigator treats as neither free space nor an obstacle.
+    """
+    status = [fields[f"range_{name}_status"] for name in NAV_RANGER_DIRECTIONS]
+    return np.array([fields[f"range.{name}"] / 1000 if s == 1 else (math.inf if s == 2 else math.nan)
+                     for name, s in zip(NAV_RANGER_DIRECTIONS, status)])
 
 
 class WedgeBugMission:

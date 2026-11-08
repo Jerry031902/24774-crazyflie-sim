@@ -80,6 +80,12 @@ The target is reported as unreachable and skipped if any of these happens withou
 
 Within `wp_tol` of a target, the drone moves on to the next one. The last `yaw_free_radius` is a direct slide, without turning. After the goal, the mode is DONE.
 
+**Hysteresis and unknown readings**
+
+Every rule above that compares a reading with a distance (`d_side`, `d_sweep`, `d_detect`, `d_wall`, `d_close`, `d_open`, and the obstacle to head for after squaring up) switches on at its threshold and back only once the reading is `p.nav.hysteresis` (0.05 m) past it. A reading wavering at a threshold therefore can't flip a decision back and forth, and no safety distance is reduced.
+
+A reading of `NaN` is unknown (an invalid reading). It changes no rule's state, never counts as free space (not an edge in a sweep, not a clear way, not a reason to leave a wall) or as an obstacle, and the drone does not fly toward it until that ranger reads again. If every reading straight ahead in a sweep is unknown, the way counts as blocked.
+
 ## Model
 
 State `x = [px; py; vx; vy]`, yaw `psi`, and a command of `u_body = [forward; left]` plus a yaw rate `r`:
@@ -97,6 +103,7 @@ dpsi/dt = r                      |r| <= yaw_rate_max
 - **Sensor position:** rays start at the sensor face, `p.ranger.offset` ahead of the body centre (16.25 mm front/back, 16.3 mm left/right, from the deck drawing), so readings are that much shorter than the centre's distance.
 - **Timing:** the driver reads every sensor every 100 ms (`p.ranger.period`), one period after starting that measurement (`p.ranger.latency`). Each reading is therefore 100 ms old when the navigator gets it and is held until the next one; before the first, the navigator sees `Inf`.
 - **Resolution:** readings are whole millimetres (`p.ranger.resolution`).
+- **Invalid readings:** with probability `p.ranger.p_invalid` (0 by default) a reading is `NaN`, unknown, as when the real sensor reports an invalid status on a dark, shiny or steeply angled surface. The stock driver reports invalid readings and "nothing within 4 m" alike as 32767 mm, so on the drone they can only be told apart if the driver also passes on the reading's status.
 
 The deck's fifth (up) sensor is not modelled in 2-D. The room walls are visible to the sensors. With `fov = 0` each sensor is a single centre ray, which can miss a corner that is within the drone's own width.
 
@@ -106,7 +113,7 @@ The deck's fifth (up) sensor is not modelled in 2-D. The room walls are visible 
 
 `noise_study(start, waypoints, goal, obstacles, p)` flies one mission 10 times at each noise level, 0, 1, 2, 5, 10 and 20 cm std dev, with a different random seed for each run. It prints a summary and plots outcome, closest approach, time to goal and sweeps against the noise level. The last section of `main.m` runs it on the mission defined there.
 
-Results for the current mission. With the hardware ranger timing and sensor positions, the 0 cm run takes 70.9 s with a closest gap of 0.11 m (2-D Python port, which matches MATLAB exactly without noise). The table below was measured with the previous ranger model (25 Hz, no delay, sensors at the body centre); rerun `noise_study` to refresh it.
+Results for the current mission. With the hardware ranger timing and sensor positions and 0.05 m hysteresis, the 0 cm run takes 78.8 s with a closest gap of 0.07 m (2-D Python port, which matches MATLAB exactly without noise). The table below was measured with the previous ranger model (25 Hz, no delay, sensors at the body centre, no hysteresis); rerun `noise_study` to refresh it.
 
 | Noise (std dev) | Succeeded | Collided | Closest gap, worst run | Time to goal, median |
 |---|---|---|---|---|

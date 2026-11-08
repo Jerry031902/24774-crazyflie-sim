@@ -20,6 +20,7 @@ from navigation.geometry import (Environment, obstacle_circle, obstacle_rect, ob
 from navigation.missions import MATLAB_MAIN  # noqa: E402
 from navigation.params import default_params  # noqa: E402
 from navigation.sim2d import compute_metrics, run_simulation  # noqa: E402
+from navigation.wedgebug import WedgeBugNavigator  # noqa: E402
 
 try:
     import cffirmware as cf
@@ -71,6 +72,12 @@ class RangerTests(unittest.TestCase):
         expected = read_rangers(log["x"][0, 0:2], log["psi"][0], room(), p)
         np.testing.assert_allclose(log["ranges"][ticks], expected)
 
+    def test_invalid_readings_are_nan(self):
+        p = default_params()
+        p.ranger.p_invalid = 1.0
+        env = room(obstacle_rect((5, 4), (1, 1)))
+        self.assertTrue(np.all(np.isnan(read_rangers((3, 4), 0, env, p, np.random.default_rng(0)))))
+
     def test_cone_sees_block_off_the_centre_line(self):
         p = default_params()
         env = room(obstacle_rect((5, 4.2), (0.2, 0.2)))
@@ -79,9 +86,49 @@ class RangerTests(unittest.TestCase):
         self.assertTrue(math.isinf(read_rangers((2, 4), 0, env, p)[0]))
 
 
+class ReadingRuleTests(unittest.TestCase):
+    """Hysteresis on range thresholds, and unknown (nan) readings."""
+
+    def navigator(self):
+        return WedgeBugNavigator((0, 0), [(5, 0)], default_params())
+
+    def test_hysteresis_turns_on_at_threshold_and_off_past_it(self):
+        nav = self.navigator()
+        # d_side = 0.25 (strict <), hysteresis 0.05; nan changes nothing.
+        for left, near in ((0.26, False), (0.25, False), (0.24, True), (0.29, True), (0.31, False),
+                           (math.nan, False), (0.24, True), (math.nan, True)):
+            nav.step(np.zeros(4), 0.0, [math.inf, left, math.inf, math.inf], 0.0)
+            self.assertEqual(bool(nav.near["side"][1]), near, f"left = {left}")
+
+    def test_unknown_ahead_holds_until_it_reads(self):
+        nav = self.navigator()
+        u, _ = nav.step(np.zeros(4), 0.0, [math.nan, math.inf, math.inf, math.inf], 0.0)
+        np.testing.assert_allclose(u, [0, 0])
+        u, _ = nav.step(np.zeros(4), 0.0, [3.0, math.inf, math.inf, math.inf], 0.02)
+        np.testing.assert_allclose(u, [nav.p.nav.v_cruise, 0])
+
+    def test_unknown_is_neither_an_edge_nor_free_space(self):
+        nav = self.navigator()
+        nav.sweep_center = 0.0
+        ang = np.radians(np.arange(-45.0, 46.0))
+        rng = np.ones(ang.size)
+        rng[50:53] = math.nan                       # unknown at +5..+7 deg, inside a wall 1 m ahead
+        nav.scan = {"t": [0.0] * ang.size, "ang": list(ang), "rng": list(rng)}
+        w = nav._read_wedge(np.zeros(2), np.array([5.0, 0.0]))
+        self.assertTrue(w["blocked"])
+        self.assertEqual(w["seen"], [False, False])
+        rng[50:53] = math.inf                       # a real gap with no return does read as an edge
+        nav.scan["rng"] = list(rng)
+        self.assertTrue(nav._read_wedge(np.zeros(2), np.array([5.0, 0.0]))["seen"][0])
+        nav.scan["rng"] = [math.nan] * ang.size     # nothing known ahead: blocked, not clear
+        self.assertTrue(nav._read_wedge(np.zeros(2), np.array([5.0, 0.0]))["blocked"])
+        self.assertEqual(nav._free_toward(np.array([2.0, 0.0]), np.array([math.nan, math.inf, math.inf, math.inf])), 0.0)
+        self.assertTrue(math.isinf(nav._free_toward(np.array([2.0, 0.0]), np.full(4, math.inf))))
+
+
 class NavigationTests(unittest.TestCase):
     def test_matlab_main_mission_matches_matlab_results(self):
-        # matlab-trajectory-sim/README.md, 0 cm noise: 70.9 s, closest gap 0.11 m.
+        # matlab-trajectory-sim/README.md, 0 cm noise: 78.8 s, closest gap 0.07 m.
         for backend in BACKENDS:
             with self.subTest(backend=backend):
                 env = MATLAB_MAIN.environment()
@@ -89,8 +136,8 @@ class NavigationTests(unittest.TestCase):
                 self.assertTrue(m["arrived"])
                 self.assertFalse(m["collided"])
                 self.assertEqual(m["targets_reached"], 4)
-                self.assertAlmostEqual(m["t_finish"], 70.9, delta=0.1)
-                self.assertAlmostEqual(m["min_clearance"], 0.107, delta=0.01)
+                self.assertAlmostEqual(m["t_finish"], 78.8, delta=0.1)
+                self.assertAlmostEqual(m["min_clearance"], 0.074, delta=0.01)
 
     def test_open_room_flies_straight_line(self):
         a, b = np.array([1, 1]), np.array([8.5, 6.5])

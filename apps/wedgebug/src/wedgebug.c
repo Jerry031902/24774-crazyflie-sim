@@ -159,14 +159,39 @@ static void turn(wedgebug_t* nav, int newDir, const float* pos, bool wallSeen) {
   }
 }
 
+// ----- hysteresis ---------------------------------------------------------------
+
+// Latch each reading against each rule's threshold: a reading turns near on
+// reaching the threshold and back only once it is hysteresis past it.
+// Unknown (NAN) readings change nothing.
+static void updateNear(wedgebug_t* nav, const float* r) {
+  const wedgebugParams_t* p = &nav->params;
+  const float threshold[WEDGEBUG_NEAR_RULES] = {
+      p->dSide, p->dSweep + 0.02f, p->dDetect + 0.02f, p->dWall + 0.02f,
+      p->dClose, p->dOpen, p->dDetect + p->cornerMargin};
+  const bool strict[WEDGEBUG_NEAR_RULES] = {true, false, false, false, true, false, false};  // < rather than <=
+  for (int i = 0; i < WEDGEBUG_NEAR_RULES; i++) {
+    for (int s = 0; s < 4; s++) {
+      if (isnan(r[s])) {
+        continue;
+      }
+      if (nav->near[i][s]) {
+        nav->near[i][s] = !(r[s] > threshold[i] + p->hysteresis);
+      } else {
+        nav->near[i][s] = strict[i] ? r[s] < threshold[i] : r[s] <= threshold[i];
+      }
+    }
+  }
+}
+
 // ----- fly_to -----------------------------------------------------------------
 
-// Face point, then fly straight at it nose first. *event: 0 none, 1 blocked,
-// 2 side_left, 3 side_right.
+// Face point, then fly straight at it nose first. *event: 0 none, 1 blocked
+// (latched as near[blockRule]), 2 side_left, 3 side_right.
 enum { EV_NONE = 0, EV_BLOCKED = 1, EV_SIDE_LEFT = 2, EV_SIDE_RIGHT = 3 };
 
 static command_t flyTo(wedgebug_t* nav, const float* pos, float psi, float speed, const float* r,
-                       const float* point, float dBlock, int* event) {
+                       const float* point, float dBlock, int blockRule, int* event) {
   const wedgebugParams_t* p = &nav->params;
   *event = EV_NONE;
   const float dx = point[0] - pos[0], dy = point[1] - pos[1];
@@ -197,18 +222,22 @@ static command_t flyTo(wedgebug_t* nav, const float* pos, float psi, float speed
   }
 
   const float front = r[0];
-  const bool shortOfPoint = front - p->dWall < dist - 0.02f;
-  if (shortOfPoint && front <= dBlock + 0.02f) {
+  const bool known = !isnan(front);
+  const bool shortOfPoint = known && front - p->dWall < dist - 0.02f;
+  if (shortOfPoint && nav->near[blockRule][0]) {
     *event = EV_BLOCKED;
     return command(1, 0.0f, 0.0f);
   }
-  if (r[1] < p->dSide) {
+  if (nav->near[WEDGEBUG_NEAR_SIDE][1]) {
     *event = EV_SIDE_LEFT;
     return command(1, 0.0f, 0.0f);
   }
-  if (r[3] < p->dSide) {
+  if (nav->near[WEDGEBUG_NEAR_SIDE][3]) {
     *event = EV_SIDE_RIGHT;
     return command(1, 0.0f, 0.0f);
+  }
+  if (!known) {
+    return command(1, 0.0f, yawCommand(p, err));  // unknown ahead: wait for a reading
   }
 
   const float stopAt = shortOfPoint ? dBlock : p->dWall;  // come to rest where it will stop and look
@@ -225,7 +254,7 @@ static command_t goToGoal(wedgebug_t* nav, const float* pos, float psi, float sp
     endEpisode(nav);  // past the obstacle: the next one is a fresh start
   }
   int event;
-  command_t c = flyTo(nav, pos, psi, speed, r, tg, nav->params.dSweep, &event);
+  command_t c = flyTo(nav, pos, psi, speed, r, tg, nav->params.dSweep, WEDGEBUG_NEAR_SWEEP, &event);
   if (event == EV_BLOCKED) {
     startAvoid(nav, pos, t);
     startSweep(nav, psi);
@@ -258,6 +287,26 @@ static void sortScan(wedgebug_t* nav) {
     nav->scanAng[j + 1] = ang;
     nav->scanRng[j + 1] = rng;
   }
+}
+
+// Drop unknown (NAN) readings from the sorted scan: they are no evidence
+// either way. True if every reading within 10 deg of the centre was unknown.
+static bool dropUnknown(wedgebug_t* nav) {
+  bool ahead = false, knownAhead = false;
+  int n = 0;
+  for (int i = 0; i < nav->scanCount; i++) {
+    const bool core = fabsf(scanRel(nav, i)) <= DEG_TO_RAD(10.0f);
+    ahead = ahead || core;
+    if (isnan(nav->scanRng[i])) {
+      continue;
+    }
+    knownAhead = knownAhead || core;
+    nav->scanAng[n] = nav->scanAng[i];
+    nav->scanRng[n] = nav->scanRng[i];
+    n++;
+  }
+  nav->scanCount = n;
+  return ahead && !knownAhead;
 }
 
 // Edges of the obstacle in a sorted sweep, one per side. Walk out from the
@@ -341,7 +390,7 @@ static bool seenFree(const wedgebug_t* nav, const float* q, const float* pos) {
   const float vx = q[0] - pos[0], vy = q[1] - pos[1];
   const float ang = atan2f(vy, vx), d = norm2(vx, vy);
   for (int i = 0; i < nav->scanCount; i++) {
-    if (fabsf(wrapToPi(ang - nav->scanAng[i])) <= p->rangerFov / 2.0f &&
+    if (fabsf(wrapToPi(ang - nav->scanAng[i])) <= p->rangerFov / 2.0f && !isnan(nav->scanRng[i]) &&
         d <= fminf(nav->scanRng[i], p->rangerRangeMax) - p->dWall) {
       return true;
     }
@@ -376,8 +425,12 @@ static void choosePassPoint(const wedgebug_t* nav, const wedge_t* w, const float
 static bool decide(wedgebug_t* nav, const float* pos) {
   const float* tg = target(nav);
   sortScan(nav);
+  const bool unknownAhead = dropUnknown(nav);
   wedge_t w;
   readWedge(nav, pos, tg, &w);
+  if (unknownAhead) {
+    w.blocked = true;  // unknown straight ahead is no way through
+  }
   if (!w.blocked) {
     nav->mode = WEDGEBUG_GO_TO_GOAL;  // nothing in the way after all
     nav->facing = false;
@@ -498,7 +551,7 @@ static command_t passEdge(wedgebug_t* nav, const float* pos, float psi, float sp
   // beside this path and shows in the front cone from further out.
   int event;
   const float goal[2] = {nav->subgoal[0], nav->subgoal[1]};
-  command_t c = flyTo(nav, pos, psi, speed, r, goal, p->dDetect, &event);
+  command_t c = flyTo(nav, pos, psi, speed, r, goal, p->dDetect, WEDGEBUG_NEAR_DETECT, &event);
   if (event == EV_BLOCKED) {
     startSweep(nav, psi);  // more of the obstacle: look again from here
   } else if (event == EV_SIDE_LEFT) {
@@ -519,17 +572,27 @@ static float freeToward(const wedgebugParams_t* p, float relX, float relY, const
     return INFINITY;
   }
   float best = INFINITY;
-  bool anyLook = false, allInf = true;
+  bool anyLook = false, allInf = true, anyUnknown = false;
   for (int s = 0; s < 4; s++) {
     const float cosine = clampf((DIRS[s][0] * relX + DIRS[s][1] * relY) / dist, -1.0f, 1.0f);
     const float a = fmaxf(acosf(cosine) - p->rangerFov / 2.0f, 0.0f);
     if (a < DEG_TO_RAD(80.0f)) {
       anyLook = true;
+      if (isnan(r[s])) {
+        anyUnknown = true;
+        continue;
+      }
       allInf = allInf && isinf(r[s]);
       best = fminf(best, fminf(r[s], p->rangerRangeMax) / cosf(a));
     }
   }
-  if (!anyLook || allInf) {
+  if (!anyLook) {
+    return INFINITY;
+  }
+  if (anyUnknown) {
+    return 0.0f;  // an unknown reading vouches for no free space
+  }
+  if (allInf) {
     return INFINITY;
   }
   return fmaxf(best - p->dWall, 0.0f);
@@ -547,18 +610,20 @@ static command_t follow(wedgebug_t* nav, const float* pos, float psi, float spee
       // Stop, then turn on the spot to the nearest room axis.
       return command(nav->execDir, 0.0f, speed < p->vTurn ? holdRate : 0.0f);
     }
-    // Head for the obstacle along whichever of front, left, right sees it nearest.
+    // Head for the obstacle along whichever of front, left, right sees it
+    // nearest (unknown readings skipped).
     const int sides[3] = {1, 2, 4};
-    int best = 0;
-    for (int i = 1; i < 3; i++) {
-      if (r[sides[i] - 1] < r[sides[best] - 1]) {
+    int best = -1;
+    for (int i = 0; i < 3; i++) {
+      const float ri = r[sides[i] - 1];
+      if (!isnan(ri) && (best < 0 || ri < r[sides[best] - 1])) {
         best = i;
       }
     }
-    nav->travelDir = sides[best];
-    if (r[sides[best] - 1] > p->dDetect + p->cornerMargin) {
-      nav->travelDir = 1;
+    if (best < 0) {
+      best = 0;
     }
+    nav->travelDir = nav->near[WEDGEBUG_NEAR_ALIGN][sides[best] - 1] ? sides[best] : 1;
     nav->phase = WEDGEBUG_PHASE_FOLLOW;
     nav->sinceTurn = 0.0f;
   }
@@ -614,16 +679,15 @@ static command_t follow(wedgebug_t* nav, const float* pos, float psi, float spee
   }
 
   // Wall-following rules, only while actually flying the travel direction.
-  const float front = r[k - 1];
-  const float wall = r[toward(k, nav->hand) - 1];
+  const int frontS = k - 1, wallS = toward(k, nav->hand) - 1;  // ranger ahead, and on the wall side
   if (flying) {
-    if (wall <= p->dOpen) {
+    if (nav->near[WEDGEBUG_NEAR_OPEN][wallS]) {
       nav->wallSeen = true;
     }
-    if (front <= p->dWall + 0.02f || wall < p->dClose) {
+    if (nav->near[WEDGEBUG_NEAR_WALL][frontS] || nav->near[WEDGEBUG_NEAR_CLOSE][wallS]) {
       turn(nav, away(k, nav->hand), pos, true);  // blocked ahead, or too close to the wall
     } else if (nav->phase == WEDGEBUG_PHASE_FOLLOW) {
-      if (nav->wallSeen && wall > p->dOpen) {
+      if (nav->wallSeen && !nav->near[WEDGEBUG_NEAR_OPEN][wallS]) {
         nav->phase = WEDGEBUG_PHASE_OVERSHOOT;  // the wall has ended
         nav->overshootLeft = p->cornerMargin;
       } else if (nav->following && !nav->wallSeen && nav->sinceTurn > 2.0f * (p->dWall + p->cornerMargin)) {
@@ -638,7 +702,10 @@ static command_t follow(wedgebug_t* nav, const float* pos, float psi, float spee
   }
 
   k = nav->travelDir;
-  float speedCmd = fminf(p->vFollow, p->kStop * fmaxf(r[k - 1] - p->dWall, 0.0f));
+  float speedCmd = 0.0f;  // unknown ahead: wait for a reading
+  if (!isnan(r[k - 1])) {
+    speedCmd = fminf(p->vFollow, p->kStop * fmaxf(r[k - 1] - p->dWall, 0.0f));
+  }
   if (nav->phase == WEDGEBUG_PHASE_OVERSHOOT) {
     speedCmd = fminf(speedCmd, p->kStop * fmaxf(nav->overshootLeft, 0.0f));
   }
@@ -688,6 +755,7 @@ void wedgebugDefaultParams(wedgebugParams_t* p) {
   p->leaveMargin = 0.10f;
   p->loopTol = 0.15f;
   p->loopMinTravel = 1.0f;
+  p->hysteresis = 0.05f;
 }
 
 void wedgebugInit(wedgebug_t* nav, const wedgebugParams_t* params, float startX, float startY) {
@@ -727,6 +795,7 @@ void wedgebugStep(wedgebug_t* nav, const wedgebugInput_t* in, wedgebugOutput_t* 
   nav->lastPos[1] = pos[1];
   nav->stepEventCount = 0;
   out->vxBody = out->vyBody = out->yawRate = 0.0f;
+  updateNear(nav, r);
 
   if (nav->targetCount == 0) {
     nav->mode = WEDGEBUG_DONE;

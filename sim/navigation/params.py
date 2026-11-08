@@ -43,6 +43,7 @@ def default_params():
         resolution=0.001,           # the driver reports whole millimetres [m]
         noise=0.0,                  # Gaussian range noise: std dev [m]...
         noise_rel=0.0,              # ...plus this fraction of the range [-]
+        p_invalid=0.0,              # chance a reading is invalid: nan, unknown rather than "no return" [-]
     )
 
     # Navigation: straight-line GO_TO_GOAL; WedgeBug AVOID
@@ -73,6 +74,7 @@ def default_params():
         leave_margin=0.10,          # leave the wall only this much closer to the target than the hit point [m]
         loop_tol=0.15,              # back within this of where wall-following began...  [m]
         loop_min_travel=1.0,        # ...after following at least this far = full loop, unreachable [m]
+        hysteresis=0.05,            # a reading must pass a threshold by this much to undo its decision [m]
     )
 
     # End of run and metrics

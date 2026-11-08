@@ -135,7 +135,10 @@ def ranger_spread(p):
 
 
 def apply_ranger_noise(r, p, rng):
-    """Gaussian noise on each return, whole millimetres, then the range limit (MATLAB read_rangers order)."""
+    """Gaussian noise on each return, whole millimetres, the range limit, then invalid readings (nan).
+
+    Same order as MATLAB read_rangers.
+    """
     r = np.array(r, dtype=float)
     if p.ranger.noise > 0 or p.ranger.noise_rel > 0:
         hit = np.isfinite(r)
@@ -145,7 +148,10 @@ def apply_ranger_noise(r, p, rng):
         # MATLAB round(): halves away from zero (np.round goes to even). Inf stays Inf.
         r = np.sign(r) * np.floor(np.abs(r) / p.ranger.resolution + 0.5) * p.ranger.resolution
     r[r > p.ranger.range_max] = np.inf
-    return np.maximum(r, 0.0)
+    r = np.maximum(r, 0.0)
+    if p.ranger.p_invalid > 0:
+        r[rng.random(len(r)) < p.ranger.p_invalid] = np.nan   # invalid status: unknown, not "no return"
+    return r
 
 
 def read_rangers(pos, psi, env, p, rng=None):

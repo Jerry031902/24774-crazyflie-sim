@@ -3,7 +3,13 @@ function [u_body, yaw_rate, nav] = navigator_step(nav, x, psi, ranges, t, p)
 %   [u_body, yaw_rate, nav] = NAVIGATOR_STEP(nav, x, psi, ranges, t, p)
 %   takes the state x = [px; py; vx; vy], the yaw psi and the ranger
 %   readings [front; left; back; right], and returns the body-frame
-%   velocity command [forward; left] and a yaw-rate command.
+%   velocity command [forward; left] and a yaw-rate command. A reading of
+%   Inf is no return; NaN is an invalid reading, unknown: never counted as
+%   free space or as an obstacle, and the drone does not fly toward it.
+%
+%   Every rule that compares a reading with a distance uses hysteresis: it
+%   switches on at its threshold and back only once the reading is
+%   p.nav.hysteresis past it (nav.near, updated every tick).
 %
 %   GO_TO_GOAL  Turn on the spot to face the current target, then fly
 %               straight at it nose first. An obstacle ahead and short of
@@ -44,6 +50,7 @@ pos   = x(1:2);
 speed = norm(x(3:4));
 moved = norm(pos - nav.last_pos);
 nav.last_pos = pos;
+nav = update_near(nav, ranges, p);
 if nav.episode
     nav.ep_travel = nav.ep_travel + moved;
     % Track how far the drone has circled round the target. More than
@@ -111,7 +118,7 @@ if nav.episode && norm(target - pos) < nav.hit_dist - p.nav.leave_margin
     nav = end_episode(nav);   % past the obstacle: the next one is a fresh start
 end
 
-[cmd, nav, event] = fly_to(nav, pos, psi, speed, ranges, target, p.nav.d_sweep, p);
+[cmd, nav, event] = fly_to(nav, pos, psi, speed, ranges, target, p.nav.d_sweep, 'sweep', p);
 switch event
     case 'blocked'
         nav = start_avoid(nav, pos, t);
@@ -128,11 +135,12 @@ switch event
 end
 end
 
-function [cmd, nav, event] = fly_to(nav, pos, psi, speed, ranges, point, d_block, p)
+function [cmd, nav, event] = fly_to(nav, pos, psi, speed, ranges, point, d_block, block_rule, p)
 % Face point, then fly straight at it nose first. event reports what
 % stopped the drone: 'blocked' (an obstacle ahead and short of the point,
-% now within d_block, where the drone comes to rest), 'side_left' /
-% 'side_right' (a side ranger below d_side), or '' (nothing).
+% now within d_block, latched as nav.near.(block_rule), where the drone
+% comes to rest), 'side_left' / 'side_right' (a side ranger below d_side),
+% or '' (nothing).
 event = '';
 d = point - pos;
 dist = norm(d);
@@ -157,20 +165,25 @@ if ~nav.facing
 end
 
 front = ranges(1);
-short_of_point = front - p.nav.d_wall < dist - 0.02;
-if short_of_point && front <= d_block + 0.02
+known = ~isnan(front);
+short_of_point = known && front - p.nav.d_wall < dist - 0.02;
+if short_of_point && nav.near.(block_rule)(1)
     event = 'blocked';
     cmd = command(1, 0, 0);
     return
 end
-if ranges(2) < p.nav.d_side
+if nav.near.side(2)
     event = 'side_left';
     cmd = command(1, 0, 0);
     return
 end
-if ranges(4) < p.nav.d_side
+if nav.near.side(4)
     event = 'side_right';
     cmd = command(1, 0, 0);
+    return
+end
+if ~known
+    cmd = command(1, 0, yaw_command(err, p));   % unknown ahead: wait for a reading
     return
 end
 
@@ -303,7 +316,7 @@ function ok = seen_free(Q, pos, scan, p)
 % so Q, and the straight line from the sweep spot to it, is clear if some
 % reading whose cone covers Q's direction reaches d_wall past it.
 v  = Q - pos;
-on = abs(wrap_to_pi(atan2(v(2), v(1)) - scan.ang)) <= p.ranger.fov / 2;
+on = abs(wrap_to_pi(atan2(v(2), v(1)) - scan.ang)) <= p.ranger.fov / 2 & ~isnan(scan.rng);
 r  = min(scan.rng(on), p.ranger.range_max);
 ok = any(norm(v) <= r - p.nav.d_wall);
 end
@@ -327,17 +340,25 @@ function w = read_wedge(scan, pos, target, center, p)
 % middle. Points are placed on that ray, half a cone inward, which puts
 % an edge on the obstacle's corner rather than half a cone past it.
 %
+% Unknown (NaN) readings are left out: they are no evidence either way,
+% and if every reading straight ahead is unknown, the way is blocked.
+%
 % Also returned: w.outline, the obstacle's points between its two edges.
 [rel, order] = sort(wrap_to_pi(scan.ang - center));
 r = scan.rng(order);
+known = ~isnan(r);
+ahead = abs(rel) <= deg2rad(10);
+unknown_ahead = any(ahead) && ~any(ahead & known);
+rel = rel(known);
+r   = r(known);
 core = find(abs(rel) <= deg2rad(10));
 [r_core, k] = min(r(core));
-w.blocked = ~isempty(core) && r_core <= p.nav.d_sweep + 0.3;
+w.blocked = unknown_ahead || (~isempty(core) && r_core <= p.nav.d_sweep + 0.3);
 w.edge    = nan(2, 2);
 w.seen    = false(1, 2);
 w.cost    = inf(1, 2);
 w.outline = zeros(0, 2);
-if ~w.blocked
+if ~w.blocked || unknown_ahead
     return
 end
 c = core(k);
@@ -383,7 +404,7 @@ if norm(nav.subgoal - pos) < p.nav.wp_tol + 0.05
 end
 % Only something close ahead counts: the corner being rounded sits just
 % beside this path and shows in the front cone from further out.
-[cmd, nav, event] = fly_to(nav, pos, psi, speed, ranges, nav.subgoal, p.nav.d_detect, p);
+[cmd, nav, event] = fly_to(nav, pos, psi, speed, ranges, nav.subgoal, p.nav.d_detect, 'detect', p);
 switch event
     case 'blocked'
         nav = start_sweep(nav, psi);        % more of the obstacle: look again from here
@@ -410,11 +431,11 @@ if strcmp(nav.phase, 'align')
         return
     end
     % Head for the obstacle along whichever of front, left, right sees it
-    % nearest; the following rules take it from there.
+    % nearest (unknown readings skipped); the following rules take it from there.
     sides = [1 2 4];
-    [r_min, i] = min(ranges(sides));
+    [~, i] = min(ranges(sides));
     nav.travel_dir = sides(i);
-    if r_min > p.nav.d_detect + p.nav.corner_margin
+    if ~nav.near.align(sides(i))
         nav.travel_dir = 1;
     end
     nav.phase = 'follow';
@@ -473,16 +494,16 @@ end
 
 % Wall-following rules, only while actually flying the travel direction
 % (not while braking for a turn just decided).
-front = ranges(k);
-wall  = ranges(toward(k, nav.hand));
+front_s = k;                              % ranger ahead, and on the wall side
+wall_s  = toward(k, nav.hand);
 if flying
-    if wall <= p.nav.d_open
+    if nav.near.open(wall_s)
         nav.wall_seen = true;
     end
-    if front <= p.nav.d_wall + 0.02 || wall < p.nav.d_close
+    if nav.near.wall(front_s) || nav.near.close(wall_s)
         nav = turn(nav, away(k, nav.hand), pos, true);     % blocked ahead, or too close to the wall
     elseif strcmp(nav.phase, 'follow')
-        if nav.wall_seen && wall > p.nav.d_open
+        if nav.wall_seen && ~nav.near.open(wall_s)
             nav.phase = 'overshoot';                        % the wall has ended
             nav.overshoot_left = p.nav.corner_margin;
         elseif nav.following && ~nav.wall_seen && ...
@@ -498,7 +519,10 @@ if flying
 end
 
 k = nav.travel_dir;
-speed_cmd = min(p.nav.v_follow, p.nav.k_stop * max(ranges(k) - p.nav.d_wall, 0));
+speed_cmd = 0;                             % unknown ahead: wait for a reading
+if ~isnan(ranges(k))
+    speed_cmd = min(p.nav.v_follow, p.nav.k_stop * max(ranges(k) - p.nav.d_wall, 0));
+end
 if strcmp(nav.phase, 'overshoot')
     speed_cmd = min(speed_cmd, p.nav.k_stop * max(nav.overshoot_left, 0));
 end
@@ -511,15 +535,45 @@ function free = free_toward(rel, ranges, p)
 % nearest hit somewhere in its cone, so take the cone ray closest to the
 % target direction, at angle a: a wall square to that ray at range r is
 % r/cos(a) away along the target direction. Rangers whose whole cone faces
-% away are ignored; no return counts as free out to the ranger's range.
+% away are ignored; no return counts as free out to the ranger's range,
+% while an unknown (NaN) reading vouches for no free space at all.
 dist = norm(rel);
 ang  = acos(min(max(dirs() * (rel / dist), -1), 1));   % sensor axis to target direction
 a    = max(ang - p.ranger.fov / 2, 0);
 look = a < deg2rad(80);
 r    = min(ranges(look), p.ranger.range_max);
 free = max(min(r ./ cos(a(look))) - p.nav.d_wall, 0);
-if all(isinf(ranges(look)))
+if any(isnan(ranges(look)))
+    free = 0;
+elseif all(isinf(ranges(look)))
     free = inf;
+end
+end
+
+function nav = update_near(nav, ranges, p)
+% Latch each reading against each rule's threshold, with hysteresis: a
+% reading turns near on reaching the threshold and back only once it is
+% p.nav.hysteresis past it. Unknown (NaN) readings change nothing.
+rules  = {'side', 'sweep', 'detect', 'wall', 'close', 'open', 'align'};
+thresh = [p.nav.d_side, p.nav.d_sweep + 0.02, p.nav.d_detect + 0.02, p.nav.d_wall + 0.02, ...
+          p.nav.d_close, p.nav.d_open, p.nav.d_detect + p.nav.corner_margin];
+strict = [true false false false true false false];    % < rather than <=
+for i = 1:numel(rules)
+    near = nav.near.(rules{i});
+    for s = 1:4
+        r = ranges(s);
+        if isnan(r)
+            continue
+        end
+        if near(s)
+            near(s) = ~(r > thresh(i) + p.nav.hysteresis);
+        elseif strict(i)
+            near(s) = r < thresh(i);
+        else
+            near(s) = r <= thresh(i);
+        end
+    end
+    nav.near.(rules{i}) = near;
 end
 end
 

@@ -13,7 +13,13 @@
  * body-frame vx/vy, a yaw rate, and an absolute height held by the caller.
  *
  * Units: m, m/s, rad, rad/s. World frame Z-up; yaw counter-clockwise from +x.
- * A range of INFINITY means "no return within rangerRangeMax".
+ * A range of INFINITY means "no return within rangerRangeMax"; NAN means an
+ * invalid reading, unknown: never counted as free space or as an obstacle,
+ * and the drone does not fly toward it.
+ *
+ * Every rule that compares a reading with a distance uses hysteresis: it
+ * switches on at its threshold and back only once the reading is
+ * params.hysteresis past it (wedgebug_t.near, updated every step).
  */
 #pragma once
 
@@ -45,6 +51,18 @@ typedef enum {
   WEDGEBUG_SWEEP_TO_START = 1,
   WEDGEBUG_SWEEP_SCAN = 2,
 } wedgebugSweepStage_t;
+
+// Rules whose range thresholds are latched with hysteresis (wedgebug_t.near).
+typedef enum {
+  WEDGEBUG_NEAR_SIDE = 0,     // dSide: a side wall closing in
+  WEDGEBUG_NEAR_SWEEP = 1,    // dSweep + 0.02: blocked ahead, stop and sweep
+  WEDGEBUG_NEAR_DETECT = 2,   // dDetect + 0.02: blocked ahead while passing an edge
+  WEDGEBUG_NEAR_WALL = 3,     // dWall + 0.02: wall-following, blocked ahead
+  WEDGEBUG_NEAR_CLOSE = 4,    // dClose: wall-following, too close to the wall
+  WEDGEBUG_NEAR_OPEN = 5,     // dOpen: wall-following, the wall is still there
+  WEDGEBUG_NEAR_ALIGN = 6,    // dDetect + cornerMargin: an obstacle to head for after squaring up
+  WEDGEBUG_NEAR_RULES = 7,
+} wedgebugNearRule_t;
 
 typedef enum {
   WEDGEBUG_EVENT_HIT = 1,
@@ -84,6 +102,7 @@ typedef struct {
   float leaveMargin;       // leave the wall this much closer than the hit point [m]
   float loopTol;           // back within this of where wall-following began... [m]
   float loopMinTravel;     // ...after following this far = full loop [m]
+  float hysteresis;        // a reading must pass a threshold by this much to undo its decision [m]
 } wedgebugParams_t;
 
 typedef struct {
@@ -91,7 +110,7 @@ typedef struct {
   float x, y;              // position estimate, world [m]
   float vx, vy;            // velocity estimate, world [m/s]
   float yaw;               // [rad]
-  float rangeFront, rangeLeft, rangeBack, rangeRight;  // [m], INFINITY = no return
+  float rangeFront, rangeLeft, rangeBack, rangeRight;  // [m], INFINITY = no return, NAN = unknown
 } wedgebugInput_t;
 
 typedef struct {
@@ -160,6 +179,10 @@ typedef struct {
   bool wallSeen;
   float overshootLeft;
   float dFollowed;
+
+  // Per rule (wedgebugNearRule_t) and ranger (front, left, back, right): the
+  // reading is at or below the rule's threshold, with hysteresis.
+  bool near[WEDGEBUG_NEAR_RULES][4];
 
   // Diagnostics: events raised by the last step, and the last sweep.
   wedgebugEvent_t stepEvents[WEDGEBUG_MAX_STEP_EVENTS];

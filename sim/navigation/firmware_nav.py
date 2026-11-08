@@ -21,6 +21,7 @@ _NAV_FIELDS = {
     "d_detect": "dDetect", "d_wall": "dWall", "d_open": "dOpen", "d_close": "dClose",
     "corner_margin": "cornerMargin", "v_turn": "vTurn", "wp_tol": "wpTol",
     "leave_margin": "leaveMargin", "loop_tol": "loopTol", "loop_min_travel": "loopMinTravel",
+    "hysteresis": "hysteresis",
 }
 EVENT_TYPES = {1: "hit", 2: "leave", 3: "reached", 4: "unreachable"}
 

@@ -42,6 +42,7 @@ p.ranger.offset     = [0.01625; 0.0163; 0.01625; 0.0163];  % sensor face ahead o
 p.ranger.resolution = 0.001;        % the driver reports whole millimetres [m]
 p.ranger.noise      = 0;            % Gaussian range noise: std dev [m]...
 p.ranger.noise_rel  = 0;            % ...plus this fraction of the range [-]
+p.ranger.p_invalid  = 0;            % chance a reading is invalid: NaN, unknown rather than "no return" [-]
 
 % Navigation: straight-line GO_TO_GOAL; WedgeBug AVOID (sweep, then round
 % the shorter side, wall-following when the edge is out of view)
@@ -71,6 +72,7 @@ p.nav.wp_tol        = 0.10;  % a waypoint counts as reached within this distance
 p.nav.leave_margin  = 0.10;  % leave the wall only this much closer to the target than the hit point [m]
 p.nav.loop_tol      = 0.15;  % back within this of where wall-following began...  [m]
 p.nav.loop_min_travel = 1.0; % ...after following at least this far = full loop, unreachable [m]
+p.nav.hysteresis      = 0.05; % a reading must pass a threshold by this much to undo its decision [m]
 
 % End of run and metrics
 p.goal_vtol = 0.05;   % the run ends once the goal is reached and speed is below this [m/s]
