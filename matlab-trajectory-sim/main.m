@@ -13,6 +13,7 @@ clear; clc; close all;
 setup_paths();
 p = default_params();
 p.ranger.noise = 0.1;   % Gaussian ranger noise, std dev [m] (default 0)
+% p.safety.enabled = false; % reproduce the original navigator without supervision
 
 %% Mission (metres, inside the p.map.xlim x p.map.ylim room)
 % Each leg has one obstacle in the way:
@@ -40,6 +41,9 @@ print_metrics(m);
 %% Plots (Figure 1) and playback (Figure 2: use its Replay button to watch again)
 plot_results(sim_log, env, p, m);
 animate_run(sim_log, env, p);
+if p.safety.enabled
+    plot_safety(sim_log,p);  % candidate/selected commands, margins, sensor age
+end
 % To also save a video of the first playback:
 % animate_run(sim_log, env, p, struct('video_file', 'drone_run.mp4'));
 

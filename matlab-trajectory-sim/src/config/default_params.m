@@ -74,6 +74,25 @@ p.nav.loop_tol      = 0.15;  % back within this of where wall-following began...
 p.nav.loop_min_travel = 1.0; % ...after following at least this far = full loop, unreachable [m]
 p.nav.hysteresis      = 0.05; % a reading must pass a threshold by this much to undo its decision [m]
 
+% Safety supervisor. Independent of the navigator's mode; no map is used.
+p.safety.enabled = true;
+p.safety.margin = 0.04;             % body clearance retained after braking [m]
+p.safety.noise_sigma = 2;           % primary range uncertainty multiplier
+p.safety.backup_margin = 0.015;     % backup's additional body clearance [m]
+p.safety.backup_noise_sigma = 1;   % raw-range uncertainty multiplier
+p.safety.hard_gap = 0.01;           % all-direction emergency body gap [m]
+p.safety.max_data_age = 0.35;       % age since measurement, not delivery [s]
+p.safety.heartbeat_timeout = 0.08;  % simulated completion deadline [s]
+p.safety.stop_speed = 0.03;         % ground speed for BRAKE -> HOLD [m/s]
+p.safety.approach_speed = 0.02;     % ignore negligible closing motion [m/s]
+p.safety.clear_frames = 3;          % distinct healthy frames before recovery
+p.safety.filter_window = 3;
+p.safety.filter_yaw_tol = deg2rad(3); % reset range history when the body turns
+p.safety.recover_speed = 0.04;      % initial recovery speed cap [m/s]
+p.safety.recover_time = 2;          % ramp back to cruise [s]
+p.safety.hold_gain = 1;             % position feedback during HOLD [1/s]
+p.safety.hold_speed = 0.10;         % cap HOLD correction [m/s]
+
 % End of run and metrics
 p.goal_vtol = 0.05;   % the run ends once the goal is reached and speed is below this [m/s]
 p.near_miss = 0.10;   % a body-to-obstacle gap below this counts as a near miss [m]

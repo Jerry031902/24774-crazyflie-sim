@@ -111,8 +111,42 @@ class FirmwareWedgeBug:
     def target(self):
         return self.targets[self.c.wp]
 
-    def step(self, x, psi, ranges, t):
+    def prepare_safety(self):
+        if (not all(hasattr(self.cf, name) for name in ("wedgebugCopyState", "wedgebugResume"))
+                or not hasattr(self._in, "timestampedRanges")):
+            raise RuntimeError("Safety needs updated cffirmware: rebuild with make bindings_python")
+
+    def checkpoint(self):
+        state = self.cf.wedgebug_t()
+        self.cf.wedgebugCopyState(state, self.c)
+        return state, len(self.events), len(self.unreachable), len(self.sweeps), self.subgoal.copy()
+
+    def restore(self, checkpoint):
+        state, events, unreachable, sweeps, subgoal = checkpoint
+        self.cf.wedgebugCopyState(self.c, state)
+        del self.events[events:]
+        del self.unreachable[unreachable:]
+        del self.sweeps[sweeps:]
+        self.subgoal = subgoal
+
+    def resume(self, x, psi, t):
+        self.cf.wedgebugResume(self.c, float(x[0]), float(x[1]), float(psi), float(t))
+        for k in range(self.c.stepEventCount):
+            self.cf.wedgebugGetStepEvent(self.c, k, self._event)
+            e = self._event
+            self.events.append({"t": e.t, "type": EVENT_TYPES[e.type], "pos": np.array([e.x, e.y]), "wp": e.wp})
+        self.subgoal = np.full(2, np.nan)
+
+    def step(self, x, psi, ranges, t, frame=None):
         cf, i = self.cf, self._in
+        # Old installed bindings can still run the baseline, never Safety.
+        if hasattr(i, "timestampedRanges"):
+            i.timestampedRanges = frame is not None
+            if frame is not None:
+                i.rangerSequence, i.rangerSampleTime, i.rangerSampleYaw = frame.seq, frame.sample_time, frame.yaw
+                i.rawFront, i.rawLeft, i.rawRight = map(float, frame.ranges[[0, 1, 3]])
+        elif frame is not None:
+            raise RuntimeError("Rebuild cffirmware for timestamped Safety inputs")
         i.t = float(t)
         i.x, i.y, i.vx, i.vy = map(float, x[:4])
         i.yaw = float(psi)

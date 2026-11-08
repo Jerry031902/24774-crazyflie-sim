@@ -197,7 +197,7 @@ static command_t flyTo(wedgebug_t* nav, const float* pos, float psi, float speed
   const float dx = point[0] - pos[0], dy = point[1] - pos[1];
   const float dist = norm2(dx, dy);
 
-  if (dist <= p->yawFreeRadius) {
+  if (dist <= p->yawFreeRadius && !nav->timestampedRanges) {
     // The last few centimetres: slide straight onto the point, no turning.
     command_t c = command(0, 0.0f, 0.0f);
     if (dist > 0.0f) {
@@ -512,23 +512,39 @@ static command_t sweep(wedgebug_t* nav, const float* pos, float psi, float speed
     const float err = wrapToPi(nav->sweepCenter - half - psi);
     c = command(nav->execDir, 0.0f, yawCommand(p, err));
     if (fabsf(err) < DEG_TO_RAD(1.0f)) {
-      nav->sweepStage = WEDGEBUG_SWEEP_SCAN;
+      nav->sweepStage = nav->timestampedRanges ? WEDGEBUG_SWEEP_SETTLE : WEDGEBUG_SWEEP_SCAN;
       nav->scanCount = 0;
+      nav->scanSequence = 0;
+    }
+  } else if (nav->sweepStage == WEDGEBUG_SWEEP_SETTLE) {
+    c = command(nav->execDir, 0.0f, yawCommand(p, wrapToPi(nav->sweepCenter-half-psi)));
+    if (fabsf(wrapToPi(nav->rangerSampleYaw-(nav->sweepCenter-half))) < DEG_TO_RAD(1.0f)) {
+      nav->sweepStage = WEDGEBUG_SWEEP_SCAN;
     }
   } else {
     // Sweep to the left end, logging front, left and right: the sides sit
     // 90 deg off the nose, so a +/-45 deg sweep sees +/-135 deg.
-    if (nav->scanCount + 3 <= WEDGEBUG_MAX_SCAN) {
-      const float ang[3] = {psi, psi + PI_F / 2.0f, psi - PI_F / 2.0f};
-      const float rng[3] = {r[0], r[1], r[3]};
+    const float sampleYaw = nav->timestampedRanges ? nav->rangerSampleYaw : psi;
+    const bool newSample = !nav->timestampedRanges ||
+      (nav->rangerSequence > nav->scanSequence &&
+       fabsf(wrapToPi(sampleYaw-nav->sweepCenter)) <= half+DEG_TO_RAD(1.0f));
+    if (newSample && nav->scanCount + 3 <= WEDGEBUG_MAX_SCAN) {
+      const float ang[3] = {sampleYaw, sampleYaw + PI_F / 2.0f, sampleYaw - PI_F / 2.0f};
+      const float rng[3] = {nav->timestampedRanges ? nav->rawFront : r[0],
+                            nav->timestampedRanges ? nav->rawLeft : r[1],
+                            nav->timestampedRanges ? nav->rawRight : r[3]};
       for (int k = 0; k < 3; k++) {
         nav->scanAng[nav->scanCount] = ang[k];
         nav->scanRng[nav->scanCount] = rng[k];
         nav->scanCount++;
       }
+      nav->scanSequence = nav->rangerSequence;
     }
     if (wrapToPi(psi - (nav->sweepCenter - half)) < 2.0f * half - 1e-3f) {
       return command(nav->execDir, 0.0f, p->sweepRate);
+    }
+    if (nav->timestampedRanges && wrapToPi(sampleYaw-(nav->sweepCenter+half)) < -DEG_TO_RAD(1.0f)) {
+      return c;
     }
     *switched = decide(nav, pos);
   }
@@ -791,6 +807,13 @@ void wedgebugStep(wedgebug_t* nav, const wedgebugInput_t* in, wedgebugOutput_t* 
   const float psi = in->yaw, t = in->t;
   const float speed = norm2(in->vx, in->vy);
   const float moved = distTo(pos, nav->lastPos);
+  nav->timestampedRanges = in->timestampedRanges;
+  nav->rangerSequence = in->rangerSequence;
+  nav->rangerSampleTime = in->rangerSampleTime;
+  nav->rangerSampleYaw = in->rangerSampleYaw;
+  nav->rawFront = in->rawFront;
+  nav->rawLeft = in->rawLeft;
+  nav->rawRight = in->rawRight;
   nav->lastPos[0] = pos[0];
   nav->lastPos[1] = pos[1];
   nav->stepEventCount = 0;
@@ -860,4 +883,28 @@ bool wedgebugGetStepEvent(const wedgebug_t* nav, int i, wedgebugEvent_t* out) {
   }
   *out = nav->stepEvents[i];
   return true;
+}
+
+void wedgebugCopyState(wedgebug_t* dst, const wedgebug_t* src) {
+  *dst = *src;
+}
+
+void wedgebugResume(wedgebug_t* nav, float x, float y, float yaw, float t) {
+  const float pos[2] = {x, y};
+  nav->lastPos[0] = x;
+  nav->lastPos[1] = y;
+  nav->facing = false;
+  nav->stepEventCount = 0;
+  if (nav->mode == WEDGEBUG_DONE) {
+    return;
+  }
+  startAvoid(nav, pos, t);
+  const float* tg = target(nav);
+  nav->lastBearing = atan2f(y-tg[1], x-tg[0]);
+  startSweep(nav, yaw);
+  nav->scanCount = 0;
+  nav->scanSequence = 0;
+  nav->subgoal[0] = nav->subgoal[1] = NAN;
+  nav->following = nav->wallSeen = false;
+  nav->sinceTurn = nav->overshootLeft = 0.0f;
 }
