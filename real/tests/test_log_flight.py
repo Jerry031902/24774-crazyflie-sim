@@ -33,7 +33,7 @@ def fake_cf(missing=None):
     cf.add_port_callback = Mock()
     cf.log = Log(crazyflie=cf)
     elements = {}
-    for name in sum({**app.LOG_BLOCKS, **app.RANGER_LOG_BLOCK}.values(), []):
+    for name in sum({**app.LOG_BLOCKS, **app.RANGER_LOG_BLOCK, **app.LQR_LOG_BLOCKS}.values(), []):
         ctype = "float"
         if name in ("motion.deltaX", "motion.deltaY"):
             ctype = "int16_t"
@@ -41,6 +41,10 @@ def fake_cf(missing=None):
             ctype = "uint16_t"
         elif name in ("motion.motion", "motion.squal", "motion.outlierCount"):
             ctype = "uint8_t"
+        elif name in ("hlqr.enabled", "hlqr.mode", "hlqr.saturated"):
+            ctype = "uint8_t"
+        elif name in ("hlqr.updates", "hlqr.dtUs", "hlqr.execUs", "hlqr.maxExecUs"):
+            ctype = "uint32_t"
         elements[name] = SimpleNamespace(ctype=ctype)
     cf.log.toc = SimpleNamespace(get_element_by_complete_name=lambda name: None if name == missing else elements.get(name))
     return cf
@@ -78,6 +82,21 @@ class LoggingTests(unittest.TestCase):
                 rows = list(csv.reader(file))
             self.assertEqual(rows[0][4:], variables)
             self.assertEqual(len(rows), 2)
+
+    def test_lqr_blocks_fit_radio_packet_and_missing_firmware_fails_before_start(self):
+        self.rec.close()
+        self.rec = app.Recorder(self.cf, Path(self.temp.name), 10, clock=self.clock, lqr=True)
+        self.rec.start()
+        self.assertEqual(self.rec.blocks["lqr"]["payload_bytes"], 19)
+        self.assertEqual(self.rec.blocks["lqr_timing"]["payload_bytes"], 16)
+        self.rec.close()
+        self.starts.reset_mock()
+        self.rec = app.Recorder(fake_cf(missing="hlqr.mode"), Path(self.temp.name),
+                                10, clock=self.clock, lqr=True)
+        self.addCleanup(self.rec.close)
+        with self.assertRaises(KeyError):
+            self.rec.start()
+        self.starts.assert_not_called()
 
     def test_missing_later_variable_starts_no_blocks_and_closes_files(self):
         self.rec.cf = fake_cf(missing="motion.shutter")
@@ -184,6 +203,27 @@ class FlightTests(unittest.TestCase):
         self.assertEqual(calls[-1].args[2], 0)
         self.assert_stopped()
 
+    def test_short_waypoint_returns_then_lands(self):
+        self.flight.run(.1, .1, waypoint_x=.25)
+        self.assertIn("waypoint", self.phases)
+        self.assertIn("return", self.phases)
+        calls = self.cf.commander.send_position_setpoint.call_args_list
+        self.assertTrue(any(c.args[0] == .25 for c in calls))
+        self.assertEqual(calls[-1].args[:3], (0., 0., 0.))
+        self.assert_stopped()
+
+    def test_interrupted_waypoint_lands_at_current_reference(self):
+        def check():
+            if self.phases and self.phases[-1] == "waypoint":
+                raise app.LoggingError("lost log")
+        self.rec.check.side_effect = check
+        with self.assertRaises(app.LoggingError):
+            self.flight.run(.1, .1, waypoint_x=.25)
+        self.assertNotIn("return", self.phases)
+        self.assertEqual(self.cf.commander.send_position_setpoint.call_args_list[-1].args[:3],
+                         (.25, 0., 0.))
+        self.assert_stopped()
+
     def test_ctrl_c_during_takeoff_still_lands_and_disarms(self):
         interrupted = False
         def send(x, y, z, yaw):
@@ -268,7 +308,8 @@ class SessionTests(unittest.TestCase):
     def test_cli_rejects_nan_and_truncated_period_before_radio(self):
         for flags in (["--height", "nan"], ["--duration", "-1"], ["--period", "15"],
                       ["--height", "1.1"], ["--height", "0.5", "--period", "100"],
-                      ["--name", "../escape"]):
+                      ["--name", "../escape"], ["--waypoint-x", "nan"],
+                      ["--height", ".5", "--waypoint-x", ".6"], ["--waypoint-x", ".25"]):
             with self.subTest(flags=flags), patch("sys.stderr", io.StringIO()), self.assertRaises(SystemExit):
                 app.parse_args(["--name", "test"] + flags)
 
