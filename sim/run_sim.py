@@ -29,8 +29,8 @@ from controllers.altitude_pid import AltitudePIDController
 MASS_KG = 0.030
 INERTIA_KGM2 = (1.6572e-5, 1.6656e-5, 2.9262e-5)  # Placeholder, kg*m^2.
 MODE = "altitude_pid"  # Also "firmware_pid", "free_fall" or "hover_ff".
-EKF_MODES = ("ekf_shadow", "ekf_closed_loop")
-MOTOR_MODES = ("firmware_pid",) + EKF_MODES
+EKF_MODES = ("ekf_shadow", "ekf_closed_loop", "ekf_lqr")
+MOTOR_MODES = ("firmware_pid", "firmware_lqr") + EKF_MODES
 GRAVITY_M_S2 = 9.81
 PHYSICS_DT = 0.001
 RENDER_EVERY = 10
@@ -181,7 +181,7 @@ def reset_runtime(sim, controller):
         _ranger.reset()
 
 
-def make_controller(mode, noise=False, seed=7, initial_xy_yaw=None):
+def make_controller(mode, noise=False, seed=7, initial_xy_yaw=None, delays_ms=None):
     """Select a controller without importing Isaac Sim into controller code."""
     if mode == "altitude_pid":
         return AltitudePIDController(
@@ -189,14 +189,17 @@ def make_controller(mode, noise=False, seed=7, initial_xy_yaw=None):
             kp=ALTITUDE_KP, ki=ALTITUDE_KI, kd=ALTITUDE_KD,
             max_thrust_N=MAX_THRUST_N,
         )
-    if mode == "firmware_pid":
+    if mode in ("firmware_pid", "firmware_lqr"):
         from controllers.firmware_pid import FirmwarePIDController
-        return FirmwarePIDController(dt_s=PHYSICS_DT, gravity_m_s2=GRAVITY_M_S2)
+        return FirmwarePIDController(dt_s=PHYSICS_DT, gravity_m_s2=GRAVITY_M_S2,
+                                     horizontal_lqr=mode == "firmware_lqr")
     if mode in EKF_MODES:
         from controllers.ekf_pid import EKFPIDController
         if PHYSICS_DT != 0.001 or GRAVITY_M_S2 != 9.81:
             raise ValueError("Stock EKF baseline requires 1 ms steps and gravity 9.81")
-        return EKFPIDController(mode, noise=noise, seed=seed, initial_xy_yaw=initial_xy_yaw)
+        return EKFPIDController("ekf_closed_loop" if mode == "ekf_lqr" else mode,
+                                noise=noise, seed=seed, initial_xy_yaw=initial_xy_yaw,
+                                horizontal_lqr=mode == "ekf_lqr", delays_ms=delays_ms)
     if mode in ("free_fall", "hover_ff"):
         return ConstantThrustController(0.0 if mode == "free_fall" else MASS_KG * GRAVITY_M_S2)
     raise ValueError(f"Unknown mode: {mode}")
@@ -204,7 +207,7 @@ def make_controller(mode, noise=False, seed=7, initial_xy_yaw=None):
 
 def setup_simulation(mode, target_z_m=TARGET_Z_M, noise=False, seed=7, ranger=False, ranger_noise=False,
                      scene_path=ARENA_PATH, initial_position=INITIAL_POSITION, camera=None,
-                     ekf_initial_xy_yaw=None):
+                     ekf_initial_xy_yaw=None, delays_ms=None):
     """Open the scene, reference the drone, and start fixed-step physics.
 
     Missions pass their own scene, start position and camera (eye, target),
@@ -220,7 +223,7 @@ def setup_simulation(mode, target_z_m=TARGET_Z_M, noise=False, seed=7, ranger=Fa
     from pxr import Gf, PhysxSchema, Usd, UsdGeom, UsdPhysics
 
     _initial_position = tuple(map(float, initial_position))
-    controller = make_controller(mode, noise=noise, seed=seed, initial_xy_yaw=ekf_initial_xy_yaw)
+    controller = make_controller(mode, noise=noise, seed=seed, initial_xy_yaw=ekf_initial_xy_yaw, delays_ms=delays_ms)
     if not math.isfinite(MASS_KG) or MASS_KG <= 0:
         raise ValueError("MASS_KG must be positive and finite")
     if len(INERTIA_KGM2) != 3 or any(not math.isfinite(i) or i <= 0 for i in INERTIA_KGM2):
@@ -335,7 +338,18 @@ def main():
                         "in its own scene; an alternative to --demo")
     parser.add_argument("--navigator", choices=("firmware", "python"), default="firmware",
                         help="Mission navigator: the C core in cffirmware, or the Python reference port")
+    parser.add_argument("--comparison-demo", action="store_true",
+                        help="Fixed-time hover and 0.5 m step for matched PID/LQR comparisons")
+    parser.add_argument("--delay-ms", type=int, default=0,
+                        help="Additional Flow and ToF delivery delay; EKF modes only")
     args = parser.parse_args()
+    if args.delay_ms < 0 or args.delay_ms > 200:
+        parser.error("--delay-ms must be in [0,200]")
+    if args.delay_ms and args.mode not in EKF_MODES:
+        parser.error("--delay-ms requires an EKF mode")
+    if args.comparison_demo:
+        args.demo = True
+    delays_ms = {"flow": args.delay_ms, "tof": args.delay_ms}
     if not math.isfinite(args.hover_seconds) or args.hover_seconds <= 0:
         parser.error("--hover-seconds must be positive and finite")
     if args.steps < 0:
@@ -369,7 +383,8 @@ def main():
     app = SimulationApp({"headless": args.headless})  # False by default.
     logger = ranger_logger = None
     try:
-        ranger_kwargs = dict(ranger=args.ranger == "on", ranger_noise=args.ranger_noise == "on")
+        ranger_kwargs = dict(ranger=args.ranger == "on", ranger_noise=args.ranger_noise == "on",
+                             delays_ms=delays_ms)
         if mission is None:
             sim, controller = setup_simulation(args.mode, args.target_z, noise=args.noise == "on", seed=args.seed,
                                                **ranger_kwargs)
@@ -389,14 +404,14 @@ def main():
             from mission_flight import WedgeBugMission
             from navigation.params import default_params
             demo = WedgeBugMission(mission, default_params(), args.target_z, backend=args.navigator,
-                                   use_estimate=args.mode == "ekf_closed_loop")
+                                   use_estimate=args.mode in ("ekf_closed_loop", "ekf_lqr"))
             csv_path = args.csv or SIM_DIR.parent / f"build/missions/{mission.name}_{args.mode}.csv"
             logger = FlightLog(csv_path)
             print(f"Mission: {mission.name}, {args.navigator} navigator", flush=True)
             print(f"Flight CSV: {csv_path}", flush=True)
         elif args.demo or args.csv:
             from flight_demo import FlightLog, HoverMoveDemo, TimedHoverMoveDemo
-            demo_type = TimedHoverMoveDemo if args.mode in EKF_MODES else HoverMoveDemo
+            demo_type = TimedHoverMoveDemo if args.comparison_demo or args.mode in EKF_MODES else HoverMoveDemo
             demo = demo_type(args.target_z, hover_hold_s=args.hover_seconds) if args.demo else None
             default_csv = (f"build/demo_live/{args.mode}_noise_{args.noise}.csv"
                            if args.mode in EKF_MODES else "build/firmware_pid/demo.csv")

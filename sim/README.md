@@ -1,5 +1,10 @@
 # Crazyflie Simulation (24-774 Team 1)
 
+**Horizontal LQR integration:** see [Hongfei's run guide](../START_HERE_HONGFEI.md)
+for the shared C implementation, `firmware_lqr` / `ekf_lqr` modes, and matched
+PID comparison commands. The comparison wrappers use 10-degree per-axis limits
+for both controllers. PhysX and hardware LQR validation must still be run.
+
 Isaac Sim 5.1 simulation for the Crazyflie 2.1, running the **real firmware code** (stock PID controller, motor mixing, and Kalman filter) through the `cffirmware` Python bindings.
 
 This folder (`sim/`) lives inside our fork of `bitcraze/crazyflie-firmware`. The repo root README is Bitcraze's firmware README. This file covers only the simulation.

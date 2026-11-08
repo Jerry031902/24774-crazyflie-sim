@@ -128,6 +128,7 @@ class FlightLog:
         row["total_thrust_N"] = command["total_thrust_N"]
         row["yaw_torque_Nm"] = sum(command["motor_yaw_torques_Nm"])
         row["saturated"] = int(command["saturated"])
+        row.update(command.get("horizontal_control", {}))
         if "ranger" in state:
             # Held uint16-mm readings with explicit validity and sample time.
             # A new value is only acquired at 10 Hz, not once per CSV row.
