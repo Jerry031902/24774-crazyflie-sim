@@ -1,0 +1,471 @@
+# Crazyflie Simulation (24-774 Team 1)
+
+**Horizontal LQR integration:** see [Hongfei's run guide](../START_HERE_HONGFEI.md)
+for the shared C implementation, `firmware_lqr` / `ekf_lqr` modes, and matched
+PID comparison commands. The comparison wrappers use 10-degree per-axis limits
+for both controllers. PhysX and hardware LQR validation must still be run.
+
+Isaac Sim 5.1 simulation for the Crazyflie 2.1, running the **real firmware code** (stock PID controller, motor mixing, and Kalman filter) through the `cffirmware` Python bindings.
+
+This folder (`sim/`) lives inside our fork of `bitcraze/crazyflie-firmware`. The repo root README is Bitcraze's firmware README. This file covers only the simulation.
+
+> **Status:** `sim-baseline-v1` (commit `89197588`). Both EKF modes passed the baseline bounded-flight checks with noise off and on, using seed 7. Noise-on closed-loop flight has substantial horizontal drift; this is not a claim of accurate real-world flight. Physical parameters and noise levels are **placeholders** until calibrated against real flight data. See [baseline results](BASELINE_EKF.md#6-observed-results) and [limitations](#placeholders-and-limitations).
+
+---
+
+## How it works
+
+The logical pipeline in `ekf_closed_loop` is:
+
+```
+PhysX true state
+   -> simulated sensors (IMU, Flow, ToF)        sim/sensors.py
+   -> stock EKF (kalmanCore, C code)            sim/estimators/firmware_ekf.py
+   -> stock controllerPid + powerDistribution   sim/controllers/firmware_pid.py
+   -> actuator model (4 motor forces + yaw)     sim/actuators.py
+   -> PhysX (single rigid body)
+```
+
+- **PhysX** computes the drone motion. The drone is one rigid body. Propellers are visual only.
+- **Firmware C code** (controller, mixer, EKF core) is compiled from this repo into `cffirmware`. The simulator calls these routines, not the complete RTOS firmware or hardware drivers. The physics/main loop is 1 kHz; individual routines and sensors run at their firmware rates.
+- **IMU/Flow/ToF measurements** are generated from ground truth using the same measurement models the firmware EKF uses, plus optional noise and delay.
+- **Multi-ranger** uses five body-fixed PhysX rays at nominal 10 Hz. It provides range telemetry separately from the EKF/PID; no avoidance is enabled. See [RANGER.md](RANGER.md) for assumptions, configuration, logs, and validation.
+
+The PID uses the previous completed EKF output. The EKF worker then processes the current measurements, matching the stock copy-before-wakeup ordering. [BASELINE_EKF.md](BASELINE_EKF.md#1-stock-order-and-rates) documents the exact order and source lines.
+
+Shared C algorithms can be tested in sim and reused on hardware after adding the required bindings and hardware integration. The baseline has no custom NIS gate. Passing in sim does not validate hardware timing, sensor fidelity, or the complete flight safety logic.
+
+---
+
+## Repo layout
+
+```
+24774-crazyflie-sim/
+├── src/ bindings/ Makefile ...   firmware source and Python bindings
+├── build/                        build outputs, git-ignored (cffirmware, plots, CSV)
+├── apps/wedgebug/src/            WedgeBug navigator in C (runs in sim via cffirmware; for the drone)
+├── matlab-trajectory-sim/        original MATLAB navigator and 2-D simulator
+└── sim/
+    ├── README.md                 this file
+    ├── Dockerfile                Isaac Sim 5.1 + C build tools
+    ├── build_scene.py            generates scenes/arena.usd
+    ├── build_mission_scene.py    generates a mission's scene, e.g. scenes/matlab_room.usd
+    ├── run_sim.py                main entry point
+    ├── mission_flight.py         --mission: takeoff -> WedgeBug navigation -> hold
+    ├── sensors.py                IMU / Flow / ToF models
+    ├── ranger.py                 Multi-ranger rays, timing, optional noise/delay, CSV
+    ├── plot_ranger.py            plot delivered ranges and geometric distances
+    ├── actuators.py              motor command -> force/torque
+    ├── assets/crazyflie/          bundled local drone USD and schema layer
+    ├── scenes/arena.usd          walls + obstacles (no drone)
+    ├── scenes/matlab_room.usd    the MATLAB mission's 10 x 8 m room
+    ├── BASELINE_EKF.md           source audit, assumptions, measured results
+    ├── plot_flight.py / plot_ekf.py / plot_mission.py
+    ├── tests/                    unit tests and headless PhysX smoke tests
+    ├── controllers/              base.py (interface), firmware_pid.py, altitude_pid.py, ...
+    ├── estimators/               firmware_ekf.py
+    └── navigation/               WedgeBug Python reference port, missions, 2-D test simulator
+```
+
+---
+
+## Hardware this sim matches
+
+| Item | Value |
+|---|---|
+| Control board | Crazyflie 2.1 |
+| Propellers | **47-17** (the Crazyflie 2.1+ propellers). Matches default `cf2_defconfig`. |
+| Flow deck | **v2** (PMW3901 + VL53L1x ToF) |
+| Ranger deck | Five-direction raycast model. Optical origins and noise still need calibration; see [RANGER.md](RANGER.md). |
+
+**This baseline assumes 47-17 propellers.** `cf2_defconfig` selects CF2; the defaults in [Kconfig](../Kconfig) select `CONFIG_CRAZYFLIE_21_PLUS` and battery thrust compensation. The [actuator model](actuators.py) checks those settings and uses the corresponding parameters from [platform_defaults_cf2.h](../src/platform/interface/platform_defaults_cf2.h). Different propellers require matching firmware settings and actuator parameters; the current model is not calibrated for them.
+
+---
+
+## Setup (one time)
+
+### 0. Requirements
+
+- Native x86_64 Ubuntu 22.04 or 24.04. This guide targets Linux Docker Engine, not Docker Desktop or WSL2; this project's WSL2 workflow has not been validated.
+- NVIDIA GPU with RT cores and a compatible driver. NVIDIA's published Isaac Sim 5.1 minimum lists RTX 4080, 16 GB VRAM, 32 GB RAM, and 50 GB SSD storage. Allow extra disk space for Docker layers, caches, and logs. GPUs without RT cores, including A100/H100, are unsupported. See the [official requirements](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html).
+- For the GUI commands below, a local graphical session with X11 or XWayland, a valid `DISPLAY`, and the `xhost` utility.
+
+### 1. NVIDIA driver, Docker Engine, NVIDIA Container Toolkit
+
+```bash
+nvidia-smi                                  # driver check, must print a GPU table
+
+# On a new development machine without Docker Engine:
+curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+sudo sh /tmp/get-docker.sh
+sudo usermod -aG docker "$USER"              # then log out and log back in
+```
+
+These use Docker's development convenience installer; the alternative is [Docker's Ubuntu apt-repository installation](https://docs.docker.com/engine/install/ubuntu/). Install the NVIDIA Container Toolkit using its [official install guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html), then configure it on the host:
+
+```bash
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+docker run --rm --runtime=nvidia --gpus all ubuntu:22.04 nvidia-smi
+```
+
+The last command must print a GPU table. Runtime configuration and restarting Docker are one-time setup steps, not steps to repeat while simulations are running.
+
+### 2. GitHub SSH key
+
+If you do not already have a GitHub SSH key:
+
+```bash
+ssh-keygen -t ed25519 -C "your_email@example.com"   # press Enter for defaults
+cat ~/.ssh/id_ed25519.pub                            # copy the whole line
+```
+
+Reuse an existing key instead of overwriting it.
+
+GitHub: avatar -> Settings -> SSH and GPG keys -> New SSH key -> paste. Then:
+
+```bash
+ssh -T git@github.com    # expect "Hi <username>! You've successfully authenticated..."
+```
+
+GitHub deliberately returns exit code 1 after successful authentication because it provides no interactive shell; check the message. See [GitHub's SSH test instructions](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/testing-your-ssh-connection).
+
+Ask Jerry to add you as a collaborator on the repo so you can push.
+
+### 3. Clone (with submodules)
+
+```bash
+git clone --recursive git@github.com:Jerry031902/24774-crazyflie-sim.git ~/24774-crazyflie-sim
+```
+
+`--recursive` is required. Without it, the bindings build fails (e.g. `arm_math.h: No such file or directory`). If you already cloned without it:
+
+```bash
+cd ~/24774-crazyflie-sim
+git submodule update --init --recursive
+```
+
+### 4. File permissions for the container
+
+The image runs as user `isaac-sim` (uid **1234**). Give that uid access to the repo, and add default ACL entries for both the container and your actual host uid. Run on the host:
+
+```bash
+setfacl -R    -m "u:1234:rwX,u:$(id -u):rwX" ~/24774-crazyflie-sim
+setfacl -R -d -m u:1234:rwX ~/24774-crazyflie-sim
+setfacl -R -d -m "u:$(id -u):rwX" ~/24774-crazyflie-sim
+getfacl -n ~/24774-crazyflie-sim  # numeric output: user:1234:rwx and default:user:1234:rwx
+```
+
+If `setfacl` is missing, install it on the host with `sudo apt-get install acl`. Default ACLs cover normally created files; applications that explicitly create private files can still restrict the effective ACL mask.
+
+### 5. Build the Docker image
+
+```bash
+cd ~/24774-crazyflie-sim
+docker build -t cf-sim:dev sim/
+```
+
+This uses [sim/Dockerfile](Dockerfile) and pulls `nvcr.io/nvidia/isaac-sim:5.1.0` on the first build. [sim/.dockerignore](.dockerignore) excludes everything except the Dockerfile from the context. Source, scenes, and build outputs are bind-mounted, not copied into the image.
+
+### 6. Create the container
+
+On the host, create a persistent background container, then open a shell:
+
+```bash
+xhost '+si:localuser:#1234'
+docker run --name cf_sim_dev -d --runtime=nvidia --gpus all \
+    --entrypoint bash \
+    -e "ACCEPT_EULA=Y" -e "PRIVACY_CONSENT=Y" \
+    -e DISPLAY="$DISPLAY" \
+    -v /tmp/.X11-unix:/tmp/.X11-unix \
+    -v "$HOME/24774-crazyflie-sim:/workspace" \
+    --network=host \
+    cf-sim:dev -lc 'sleep infinity'
+docker exec -it cf_sim_dev bash
+```
+
+The `xhost` entry grants local X access to uid 1234, matching this image's user with the standard Docker Engine configuration above. `cf-sim:dev` is the **image**; `cf_sim_dev` is the **container name**. `PRIVACY_CONSENT=Y` opts into NVIDIA data collection and can be omitted to opt out, as documented in the [Isaac Sim container guide](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/install_container.html).
+
+For later sessions, reconnect to this container instead of creating a new one; see [Starting a session](#starting-a-session).
+
+Inside the container, `~` is `/isaac-sim`, and the repo is at `/workspace`. Prompt `isaac-sim@...` = inside, `<you>@...` = host. Do git operations on the **host** (your SSH key is not in the container).
+
+### 7. Build the firmware Python bindings (inside the container)
+
+```bash
+cd /workspace
+make cf2_defconfig      PYTHON=/isaac-sim/python.sh
+make bindings_python    PYTHON=/isaac-sim/python.sh
+make test_python        PYTHON=/isaac-sim/python.sh     # expect all tests passed
+```
+
+Bindings **must** be built with Isaac Sim's Python 3.11 (`/isaac-sim/python.sh`). Do not use `pixi` (Python 3.13) or the root `cffirmware_setup.py` (hard-coded Python 3.8).
+
+The Dockerfile already sets `PYTHON=/isaac-sim/python.sh` and `PYTHONPATH=/workspace/build`; no manual export is needed in this image. Check the import:
+
+```bash
+/isaac-sim/python.sh -c 'import cffirmware; print(cffirmware.__file__)'
+```
+
+The expected path is `/workspace/build/cffirmware.py`. `Makefile` invokes `bindings/setup.py`; the root `cffirmware_setup.py` is a legacy packaging helper copied into `build/`, not the extension build entry point.
+
+**Rebuild the bindings every time you change firmware C code, then restart the Python/simulation process.** For header or build-configuration changes, force extension recompilation after regenerating the bindings:
+
+```bash
+make bindings_python PYTHON=/isaac-sim/python.sh
+/isaac-sim/python.sh bindings/setup.py build_ext --inplace --force
+make test_python PYTHON=/isaac-sim/python.sh
+```
+
+This image contains native C-extension build tools. Building/flashing the STM32 firmware additionally requires the firmware toolchain described in the repo's [firmware build guide](../docs/building-and-flashing/build.md).
+
+### 8. Generate the scene
+
+`scenes/arena.usd` and `assets/crazyflie/` are already tracked. Regenerate the arena only after changing its constants; this command overwrites `arena.usd` and does not add the drone:
+
+```bash
+/isaac-sim/python.sh /workspace/sim/build_scene.py
+```
+
+---
+
+## Starting a session
+
+Setup is one time. Every later session reuses the existing `cf_sim_dev` container. The container has no restart policy, so it is stopped after a host reboot or a Docker restart.
+
+**1. Start and enter the container** (host):
+
+```bash
+xhost '+si:localuser:#1234'            # after every host login; the GUI cannot open without it
+docker start cf_sim_dev                # if stopped; harmless if already running
+docker exec -it cf_sim_dev bash        # enter, or open another shell
+```
+
+The prompt changes to `isaac-sim@...:/workspace$`; `/workspace` is the repo.
+
+**2. Run something** (container), e.g. a [WedgeBug mission](#wedgebug-navigation-missions) or the firmware demo:
+
+```bash
+/isaac-sim/python.sh /workspace/sim/run_sim.py --mode firmware_pid --mission matlab_main
+/isaac-sim/python.sh /workspace/sim/run_sim.py --mode firmware_pid --demo
+```
+
+The first launch after creating the container compiles shaders and can look frozen for a few minutes. See [Running](#running) for every option.
+
+**3. Stop the simulation:** close the Isaac Sim window (or File > Exit), or press Ctrl+C in its terminal. The CSV is closed either way. If it hangs, run `docker exec cf_sim_dev pkill -f run_sim.py` on the host.
+
+**4. Leave the container:** `exit` (or Ctrl+D) returns to the host prompt. The container keeps running idle, which costs essentially nothing; `docker stop cf_sim_dev` (host) stops it fully. Do git operations on the host.
+
+`docker ps -a --filter name=cf_sim_dev` shows whether the container exists and is running. Do **not** repeat the step 6 `docker run`; it fails because the name is in use. The repo, `build/` (bindings, CSVs, plots), and the container's shader cache persist across `docker start`, so nothing needs rebuilding.
+
+| You changed | Then |
+|---|---|
+| Python under `sim/` | Nothing; rerun the command |
+| Firmware C code or headers | Rebuild the bindings ([step 7](#7-build-the-firmware-python-bindings-inside-the-container)), then rerun |
+| `sim/Dockerfile` | `docker build -t cf-sim:dev sim/`, then `docker rm -f cf_sim_dev` and repeat the step 6 `docker run` |
+
+`docker rm` deletes the container's shader cache and anything installed manually inside it, so the next first launch is slow again. Files under `/workspace` are on the host and are not affected.
+
+---
+
+## Running
+
+All commands below run **inside the container**, unless labeled host. GUI is the default. `--target-z` defaults to 1.0 m.
+
+| Command | What it does |
+|---|---|
+| `/isaac-sim/python.sh /workspace/sim/run_sim.py` | Default: simple Python altitude PID, target z = 1 m |
+| `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode free_fall` | No thrust: drone drops and rests |
+| `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode hover_ff` | Constant total thrust = m·g; no position feedback |
+| `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode altitude_pid --target-z 1.0` | Explicit Python altitude-only PID |
+| `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode firmware_pid --demo` | Firmware PID on ground truth: takeoff, 5 s settled hover, move to x = 0.5 m |
+| `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode ekf_shadow --demo --noise off` | Ground-truth PID; stock EKF runs alongside and does not control flight |
+| `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode ekf_closed_loop --demo --noise off` | Simulated sensors -> stock EKF -> firmware PID |
+| `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode firmware_pid --mission matlab_main` | WedgeBug navigation (C firmware navigator) through the MATLAB mission, PID on ground truth |
+| `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode ekf_closed_loop --mission matlab_main` | Same mission; navigator and PID see only the EKF estimate |
+| `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode firmware_pid --mission matlab_main --navigator python` | Same mission with the Python reference navigator |
+| `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode firmware_pid --mission matlab_main --headless` | No window; exits once the drone holds at the goal and prints a mission summary |
+
+For either EKF mode, use `--noise on` to add simulated sensor noise; `--noise off` is the default. `--seed 7` selects the default repeatable noise realization. Noise-off retains the firmware filters, process noise, and measurement covariance. `--noise on` is rejected in non-EKF modes.
+
+`run_sim.py` enables Multi-ranger in every mode by default (`--ranger on`). Turn it off with `--ranger off`. Its independent `--ranger-noise on` switch adds Ranger noise; `--noise` continues to control only IMU/Flow/ToF. Ranger readings are printed in mm and saved at nominal 10 Hz. Only the `--mission` navigator uses them; the stock EKF and PID never do. The historical comparison/recording runners retain their previous configuration; use the dedicated Ranger runner below for sensing tests.
+
+The EKF modes with `run_sim.py --demo` default to 0-10 s takeoff/settle, 10-15 s hover, then 15-25 s move/settle to (0.5, 0, 1). Change the hover duration with `--hover-seconds 5` or edit `DEMO_HOVER_S` near the top of `run_sim.py`. Takeoff/move windows are `EKF_TAKEOFF_SETTLE_S` / `EKF_MOVE_SETTLE_S` in `flight_demo.py`.
+
+The four-case comparison runner (`tests/smoke_firmware_ekf.py`) and video recorder retain the original 10 s hover default from `HOVER_HOLD_S` in `flight_demo.py`, giving the original 0-10 / 10-20 / 20-30 s schedule. `plot_ekf.py` reads phase boundaries from each CSV, so both schedules are supported. Compare drift only over matched hover durations.
+
+The ground-truth firmware demo instead switches phases after meeting position/speed tolerances. GUI demos and missions continue holding the final target until the window is closed; `--headless` with `--demo` or `--mission` exits when the run completes. `--steps N` bounds any mode by physics steps; 1000 steps represent 1 simulation second, not necessarily 1 wall-clock second.
+
+### WedgeBug navigation missions
+
+`--mission` flies the reactive navigator from [matlab-trajectory-sim](../matlab-trajectory-sim/README.md) through its waypoints, using only the four horizontal Multi-ranger readings to get round obstacles it has no map of. It is a separate path from `--demo`, which is unchanged.
+
+```bash
+/isaac-sim/python.sh /workspace/sim/build_mission_scene.py           # only if scenes/matlab_room.usd is missing or the mission changed
+/isaac-sim/python.sh /workspace/sim/run_sim.py --mode firmware_pid --mission matlab_main
+/isaac-sim/python.sh /workspace/sim/run_sim.py --mode ekf_closed_loop --mission matlab_main --noise on
+/isaac-sim/python.sh /workspace/sim/plot_mission.py /workspace/build/missions/matlab_main_firmware_pid.csv
+```
+
+```
+Multi-ranger (PhysX rays, ranger.py) ──┐
+state the PID sees (truth or EKF) ─────┼─> wedgebugStep()  50 Hz   apps/wedgebug/src/wedgebug.c (C, via cffirmware)
+                                       │      -> hover setpoint: body vx/vy, yaw rate, height
+                                       └─> controllerPid (velocity_body, yaw modeVelocity) -> motors
+```
+
+- **The navigator is firmware C code.** [apps/wedgebug/src/wedgebug.c](../apps/wedgebug/src/wedgebug.c) has no RTOS or driver dependencies, uses single-precision floats and fixed buffers, and is compiled into `cffirmware` (rebuild the bindings after editing it). On the drone, an app task would call `wedgebugStep()` with the estimator state and `rangeGet()` readings and send the output with `commanderSetSetpoint()`; that app wrapper is not written yet, and the core has not been compiled for the STM32.
+- `--navigator python` uses the reference port in [navigation/wedgebug.py](navigation/wedgebug.py) instead. Both are line-by-line ports of `navigator_step.m`.
+- **Sequence:** take off to `--target-z` above the mission start and settle for 1 s, navigate, then hold position at the goal. Headless runs exit when the drone holds at the goal.
+- **What the navigator sees:** ground truth in `firmware_pid` and `ekf_shadow`, the EKF estimate in `ekf_closed_loop`. Missions start the EKF at the mission start (`kalman.initialX/Y`); Flow/ToF still give no absolute XY, so expect position drift with `--noise on`.
+- **Rangers:** the same [ranger.py](ranger.py) deck as every other mode (see [RANGER.md](RANGER.md)), modelled on the real Multi-ranger: a 27 deg cone per sensor (nearest hit), 4 m range, whole millimetres, cast from each sensor face on the deck edge, measured every 100 ms and delivered 100 ms later, as the firmware driver does. Rays come from the true pose, so attitude tilts them. The navigator reads front/left/back/right; `--ranger-noise on` adds its noise. `--mission` requires `--ranger on`. MATLAB and the 2-D simulator below use the same model in the horizontal plane.
+- **Missions** live in [navigation/missions.py](navigation/missions.py): room, obstacles, start, waypoints, goal, scene file. `matlab_main` is `main.m` unchanged, in a 10 x 8 m room with its corner at the world origin. A new mission needs its scene built once with `build_mission_scene.py --mission NAME`; that script never writes `arena.usd`.
+- **CSV:** `build/missions/<mission>_<mode>.csv` adds navigator mode/phase/waypoint, the four ranges, and the commanded velocity and yaw rate to the usual firmware columns.
+
+Without Isaac Sim, the 2-D kinematic simulator reproduces the MATLAB results (matlab_main: goal at 70.9 s, closest gap 0.11 m) and compares the C and Python navigators:
+
+```bash
+python3 /workspace/sim/navigation/sim2d.py                     # Python reference; any Python 3 + numpy
+/isaac-sim/python.sh /workspace/sim/navigation/sim2d.py --backend firmware
+/isaac-sim/python.sh -m pytest /workspace/sim/tests/test_wedgebug.py
+```
+
+### Logs and plots
+
+`run_sim.py` writes a **flight CSV** when `--demo` or `--csv PATH` is supplied; both options require a firmware controller mode. Ranger has a separate CSV in all modes when enabled. Default flight paths, relative to the repo root:
+
+| Mode | `--demo` output |
+|---|---|
+| `firmware_pid` | `build/firmware_pid/demo.csv` |
+| `ekf_shadow` | `build/demo_live/ekf_shadow_noise_off.csv` (or `_on.csv`) |
+| `ekf_closed_loop` | `build/demo_live/ekf_closed_loop_noise_off.csv` (or `_on.csv`) |
+
+The comparison runner still writes to `build/ekf_baseline/`; live demos use `build/demo_live/` to avoid replacing those four comparison runs. EKF runs also write a sibling `.measurements.csv`. Existing files at the chosen paths are overwritten on a new run or Stop/Play reset. Choose `--csv` for separate experiments. `run_sim.py` does **not** automatically create plots or flight-analysis reports.
+
+With Ranger enabled, `flight.csv` also produces `flight.ranger.csv` and `flight.ranger.json` (model settings/counts). Without a flight CSV, defaults are `build/demo_live/<mode>.ranger.csv` and `.ranger.json`. Override with `--ranger-csv PATH`. The full-rate flight CSV holds the latest `range.front/back/left/right/up` in mm, explicit validity flags, and Ranger sample/delivery timestamps. The separate Ranger CSV records only delivered samples, including the hit collider and ray pose. Invalid `32767` is not a measured 32.767 m distance.
+
+After the corresponding demo has finished and its CSV has closed:
+
+```bash
+/isaac-sim/python.sh /workspace/sim/plot_flight.py /workspace/build/firmware_pid/demo.csv
+/isaac-sim/python.sh /workspace/sim/plot_ekf.py /workspace/build/demo_live/ekf_closed_loop_noise_off.csv
+/isaac-sim/python.sh /workspace/sim/plot_ranger.py /workspace/build/demo_live/ekf_closed_loop_noise_off.ranger.csv
+```
+
+Each plot script writes a sibling `.png`; `plot_ekf.py` also prints metrics to stdout and requires the sibling measurement CSV.
+
+For live geometry checks plus two 25 s Ranger demo runs and a flight-regression reference (0-10 s takeoff, 10-15 s hover, move at 15 s):
+
+```bash
+/isaac-sim/python.sh /workspace/sim/tests/smoke_ranger.py --output-dir /workspace/build/ranger_validation
+```
+
+This checks walls/pillars, yaw/pitch transforms, optical offsets, self filtering, no-return handling, noise, and identical noisy EKF/PID flight with Ranger enabled/disabled. `--geometry-only` runs just the geometric checks. [RANGER.md](RANGER.md) describes the current model's limits.
+
+For all four matched EKF runs (shadow/closed-loop, noise off/on), with CSVs, plots, per-run JSON, and `summary.json` generated together:
+
+```bash
+/isaac-sim/python.sh /workspace/sim/tests/smoke_firmware_ekf.py
+```
+
+This headless runner writes to `build/ekf_baseline/` by default. Its `--output-dir` selects a different directory; `--mode ekf_closed_loop --noise on --seed 7` selects one combination. The smoke runner's default `--noise both` differs from `run_sim.py`'s `--noise off`.
+
+The existing motor/sign-test and ground-truth flight runner writes to `build/firmware_pid/` (`flight.csv`, `flight.png`, `sign_tests.json`, `summary.json`):
+
+```bash
+/isaac-sim/python.sh /workspace/sim/tests/smoke_firmware_pid.py
+```
+
+From the host, without entering the container:
+
+```bash
+docker exec -it cf_sim_dev /isaac-sim/python.sh /workspace/sim/run_sim.py --mode firmware_pid --demo
+```
+
+---
+
+## Adding your own code
+
+### A controller
+
+Implement the interface in [controllers/base.py](controllers/base.py):
+
+```python
+from controllers.base import Controller
+
+class MyController(Controller):
+    def reset(self): ...
+    def compute(self, state: dict, target: dict) -> dict: ...
+```
+
+Register the controller in `run_sim.py`'s `make_controller()` and argparse mode choices. Return `total_thrust_N` for a single body-Z force, or four `motor_commands` in M1-M4 order. A motor controller also needs inclusion in `MOTOR_MODES` so the actuator is initialized. Existing firmware logging expects additional telemetry keys; adapt it if your controller returns a different schema. Controllers are not auto-discovered.
+
+Recommended workflow for anything that will fly on the real drone:
+
+1. Prototype in Python, test in sim.
+2. Write the C version. For a controller, see the [out-of-tree controller guide](../docs/development/oot.md#oot-controllers) and [example](../examples/app_out_of_tree_controller/README.md): implement `controllerOutOfTreeInit`, `controllerOutOfTreeTest`, and `controllerOutOfTree`, and enable `CONFIG_CONTROLLER_OOT=y` in your project configuration.
+3. Add the required headers/declarations to `bindings/cffirmware.i` and sources/dependencies to `bindings/setup.py`, rebuild bindings, then add a Python wrapper that calls the new C entry point. The current wrapper calls `controllerPid()` directly; selecting an OOT firmware config alone does not switch the simulator's controller.
+4. Run the C version in sim, confirm it matches the Python version.
+5. Build the hardware firmware with the STM32 toolchain and validate it on hardware before relying on sim results.
+
+### Firmware changes
+
+- **Add, do not delete.** We compare stock vs custom (stock EKF vs gated EKF, PID vs LQR), so stock code must stay available behind a parameter switch.
+- Do not edit `cf2_defconfig`. Put project config changes in a separate config file.
+
+---
+
+## Conventions
+
+| Item | Convention |
+|---|---|
+| Units | Public ground-truth state uses m, s, rad; actuator outputs use N and N·m. Firmware structs and diagnostic logs also use deg, deg/s, Gs, and Flow counts; names/comments specify conversions. |
+| World frame | Z-up, matches firmware |
+| Body frame | x forward, y left, z up |
+| Legacy pitch | Firmware Euler `pitch` is **inverted** relative to right-handed pitch. Quaternion is not. The ground-truth path converts in `firmware_pid.py`; closed-loop uses the stock EKF's already-converted state. |
+| Motor numbering / spin direction | From firmware `power_distribution_quadrotor.c`. Verified by sign tests. |
+| Rates | 1 kHz physics, IMU, and main loop; render every 10 steps. Position 100 Hz, attitude/rate 500 Hz, EKF predict 100 Hz. Flow 100 Hz, ToF v2 40 Hz (nominal). These are simulation-time rates. |
+
+---
+
+## Placeholders and limitations
+
+| Item | Current value / status | Replace with |
+|---|---|---|
+| `MASS_KG` | 0.030 (placeholder) | Measured total mass with battery + Flow deck + Ranger deck |
+| `INERTIA_KGM2` | `(1.6572e-5, 1.6656e-5, 2.9262e-5)` kg·m² in `run_sim.py`; placeholders, not measured for this vehicle | Estimate including battery and decks |
+| Motor dynamics | None (force changes instantly) | Kelvin's motor time constant |
+| Sensor noise (IMU, Flow, ToF) | Assumed values in `sensors.py` | Values from real hover logs |
+| Sensor bias, delay | Bias not modeled; configurable additional delays all default to zero. IMU filtering still adds lag. | Values from real logs |
+| Flow noise vs EKF assumption | Noise-on Gaussian standard deviation and stock measurement standard deviation are both 2.0 firmware counts. Noise-off keeps the latter. | Measured noise and separately specified fault cases. Matching one standard deviation does not establish EKF optimality or eliminate Gaussian tail events; no custom gate is present. |
+| Battery voltage compensation | Firmware config enables it, but the simulation does not run the voltage-to-PWM stage. The adapter converts the pre-compensation force command directly to N. | Battery/motor model if needed |
+| Flow / ToF geometry | Stock measurement models on a flat floor; no camera images or scene raycasts, no texture failure/dropout model | Scene-dependent sensing if needed |
+| EKF observability | Flow/ToF provide no absolute XY or yaw reference; noise-on position drift is expected | External reference only if available on the real system |
+| Ranger deck | Five 27° ray cones (nearest hit), 10 Hz with one period of delivery delay, up to 4 m, from the datasheet sensor positions (heights unmeasured) | Measured noise and sensor heights; surface/lighting-dependent validity model if needed |
+| Aerodynamics (drag, ground effect) | No explicit model | Identify from real logs if needed |
+
+These are idealized baseline results, not a validated prediction of real-flight accuracy. The complete arming/watchdog/emergency state machines are not simulated. See [BASELINE_EKF.md](BASELINE_EKF.md) for measurement assumptions and the actual stability criteria.
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| `groups: cannot find name for group ID ...` | Harmless warning when entering the container. Ignore. |
+| `Permission denied` on a file in `/workspace` | Check `ls -l` and `getfacl` on the host. A missing ACL, parent-directory access, or restrictive ACL mask can cause this. Reapply the setup ACL entries to the affected path. If the entry exists but its mask blocks it, `chmod 664 <file>` or `chmod 775 <dir>` can restore the mask; replace the placeholders with actual paths. |
+| `Failed to open stage ...usd` | Check that the repo mount, local USD path, and referenced asset files exist and are readable. Check permissions before regenerating the scene. |
+| Isaac Sim window does not appear | Run `xhost '+si:localuser:#1234'` on the host. Check the container's `DISPLAY`, the `/tmp/.X11-unix` mount, and that the host has a graphical session. |
+| First launch looks frozen | Shader compilation. Wait a few minutes. |
+| `ModuleNotFoundError: cffirmware` | Build the bindings using Python 3.11. `cf-sim:dev` already sets `PYTHONPATH=/workspace/build`; if using another environment, set it explicitly. |
+| Sim behaves like old firmware code | You changed C code but did not rebuild bindings. |
+| `docker: Error ... name "/cf_sim_dev" is already in use` | Reuse it with `docker start cf_sim_dev` if stopped, then `docker exec -it cf_sim_dev bash`. |
+
+---
+
+## Git rules
+
+- Never commit `build/` outputs or large files (GitHub rejects files > 100 MB).
+- Run `git status` before every commit.
+- Work on your own branch, open a PR to merge.
+- Baseline reference: tag `sim-baseline-v1` at commit `89197588` (the implementation before this README was added).
