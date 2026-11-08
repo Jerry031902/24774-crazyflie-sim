@@ -1,8 +1,13 @@
 # Hongfei: horizontal LQR prototype
 
+The MATLAB files below remain standalone. The shared C implementation, firmware
+switch, navigation velocity interface, and Isaac/PID comparison commands are now
+in [START_HERE_HONGFEI.md](../START_HERE_HONGFEI.md).
+Host C tests and CPU dynamics have run; PhysX and hardware validation are pending.
+
 Runnable MATLAB design and demonstration for Sprint 1. This is a standalone
-horizontal model with assumed parameters and synthetic feedback. It is not yet
-connected to the repository's Isaac Sim, firmware PID, EKF, or navigator.
+horizontal model with assumed parameters and synthetic feedback. These MATLAB
+scripts do not themselves call Isaac Sim, the firmware PID, EKF, or navigator.
 
 ## Run
 
