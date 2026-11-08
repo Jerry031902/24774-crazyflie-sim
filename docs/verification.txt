@@ -1,0 +1,40 @@
+Hongfei LQR verification — 2026-11-06 (America/New_York date)
+Base repository: Jerry031902/24774-crazyflie-sim
+Base commit: 96259a3cf0f0911f121c4336335455ef3be446a3
+
+Executed locally:
+- Exact ZOH/DARE generation; cross-check against SciPy expm and solve_discrete_are.
+- Host compilation of actual controller_pid, horizontal_lqr, position/attitude PID,
+  PID/filter utilities, and motor mixing.
+- Complete cffirmware SWIG binding compiled on Windows Python 3.11 with Zig 0.13.
+  CMSIS headers/sources use repository submodule revision
+  a65b7c9a3e6502127fdb80eb288d8cbdf251a6f4.
+  Windows host-only bzero compatibility and explicit LPF DLL exports were needed;
+  neither changes the controller algorithm or the Linux build.
+- Test command:
+  python -m pytest test_python sim/tests/test_firmware_pid.py
+    sim/tests/test_firmware_ekf.py sim/tests/test_lqr_bindings.py
+    sim/lqr/test_lqr.py real/tests -q
+  Result: 76 passed; 9 subtests passed; 1 upstream NumPy __array__ deprecation warning.
+- Sensor/filter/EKF/subsampler sources verified unchanged against base archive.
+  Existing EKF DC test tolerance adjusted to 5e-5 m/s^2 for ~3 ppm float32
+  host-compiler drift. No estimator code or measurement uncertainty was changed.
+- Six 30 s nonlinear CPU runs with actual C controllers/mixer:
+  PID/LQR x no-drag, drag=0.5/s, synthetic noisy/delayed XY feedback.
+  These runs use a quaternion rigid body, ideal force motors, assumed mass/inertia.
+  They do NOT use PhysX or the stock EKF. See cpu_raw_csv.zip and metrics.json.
+- Python syntax checked for sim/ and real/log_flight.py.
+
+Not executed:
+- Isaac Sim/PhysX on teammate's computer.
+- End-to-end automatic obstacle braking with Kelvin's safety branch.
+- ARM/STM32 full firmware build/link, flashing, radio, or flight.
+- Real CPU timing or actual stopping-distance calibration.
+- GitHub push (connected integration reports push=false).
+
+The full-controller logs in real/lqr.csv are controller.roll/controller.pitch.
+hlqr.execUs/dtUs are horizontal-module timing, not complete stabilizer timing.
+The mode switch keeps stabilizer.controller=1 and selects hlqr.enable=0 or 1.
+
+
+Package checks: clean application, all file hashes, repeat application, and conflict refusal passed.
