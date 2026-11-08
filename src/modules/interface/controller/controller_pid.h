@@ -29,6 +29,8 @@
 #include "stabilizer_types.h"
 
 void controllerPidInit(void);
+float controllerPidGetRollReference(void);
+float controllerPidGetPitchReference(void);
 bool controllerPidTest(void);
 void controllerPid(control_t *control, const setpoint_t *setpoint,
                                          const sensorData_t *sensors,
