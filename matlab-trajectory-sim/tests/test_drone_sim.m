@@ -58,6 +58,7 @@ end
 
 function testRangersSeeWallsAndObstacles(tc)
 p = tc.TestData.p;
+p.ranger.noise = 0;                         % exact geometry, no bench noise
 p.ranger.fov = 0;          % single centre ray from the body centre: exact distances
 p.ranger.offset = 0;
 p.ranger.resolution = 0;
@@ -72,6 +73,7 @@ function testRangerSensorFacesAndMillimetres(tc)
 % Datasheet drawing: faces 16.25 mm (front/back) and 16.3 mm (left/right)
 % from the centre; the driver reports whole millimetres.
 p = tc.TestData.p;
+p.ranger.noise = 0;                         % exact geometry, no bench noise
 p.ranger.fov = 0;
 env = make_environment(p, {obstacle_rect([5 4], [1 1])});
 r = read_rangers([3; 4], 0, env, p);
@@ -81,6 +83,7 @@ end
 function testRangerReadingsArriveOnePeriodLate(tc)
 % The driver reads each result 100 ms after starting that measurement.
 p = tc.TestData.p;
+p.ranger.noise = 0;                         % exact geometry, no bench noise
 env = make_environment(p, {});
 sim_log = run_simulation([1 4], [], [2 4], env, p);
 ticks = round(p.ranger.latency / p.dt);
@@ -141,6 +144,7 @@ end
 
 function testRangerMaxRangeAndCone(tc)
 p = tc.TestData.p;
+p.ranger.noise = 0;                         % exact geometry, no bench noise
 env = make_environment(p, {obstacle_rect([5 4.2], [0.2 0.2])});   % small block just off the centre line
 p.ranger.fov = 0;
 r = read_rangers([2; 4], 0, env, p);

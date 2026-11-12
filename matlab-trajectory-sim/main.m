@@ -12,7 +12,7 @@
 clear; clc; close all;
 setup_paths();
 p = default_params();
-p.ranger.noise = 0.1;   % Gaussian ranger noise, std dev [m] (default 0)
+% p.ranger.noise = 0.1;   % stress test: 50x the bench-measured ranger noise (default p.ranger.noise_measured, 0.002 m)
 % p.safety.enabled = false; % reproduce the original navigator without supervision
 
 %% Mission (metres, inside the p.map.xlim x p.map.ylim room)

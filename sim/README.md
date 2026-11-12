@@ -74,7 +74,7 @@ Shared C algorithms can be tested in sim and reused on hardware after adding the
 | Control board | Crazyflie 2.1 |
 | Propellers | **47-17** (the Crazyflie 2.1+ propellers). Matches default `cf2_defconfig`. |
 | Flow deck | **v2** (PMW3901 + VL53L1x ToF) |
-| Ranger deck | Five-direction raycast model. Optical origins and noise still need calibration; see [RANGER.md](RANGER.md). |
+| Ranger deck | Five-direction raycast model, bench-measured noise (2 mm). Sensor heights still need measuring; see [RANGER.md](RANGER.md). |
 
 **This baseline assumes 47-17 propellers.** `cf2_defconfig` selects CF2; the defaults in [Kconfig](../Kconfig) select `CONFIG_CRAZYFLIE_21_PLUS` and battery thrust compensation. The [actuator model](actuators.py) checks those settings and uses the corresponding parameters from [platform_defaults_cf2.h](../src/platform/interface/platform_defaults_cf2.h). Different propellers require matching firmware settings and actuator parameters; the current model is not calibrated for them.
 
@@ -284,9 +284,9 @@ All commands below run **inside the container**, unless labeled host. GUI is the
 | `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode firmware_pid --mission matlab_main --navigator python` | Same mission with the Python reference navigator |
 | `/isaac-sim/python.sh /workspace/sim/run_sim.py --mode firmware_pid --mission matlab_main --headless` | No window; exits once the drone holds at the goal and prints a mission summary |
 
-For either EKF mode, use `--noise on` to add simulated sensor noise; `--noise off` is the default. `--seed 7` selects the default repeatable noise realization. Noise-off retains the firmware filters, process noise, and measurement covariance. `--noise on` is rejected in non-EKF modes.
+In either EKF mode, bench-measured IMU/ToF noise (and the still-assumed Flow noise) is on by default; `--noise off` gives ideal sensors. `--seed 7` selects the default repeatable noise realization. Noise-off retains the firmware filters, process noise, and measurement covariance. `--noise on` is rejected in non-EKF modes, which do not use these sensor models.
 
-`run_sim.py` enables Multi-ranger in every mode by default (`--ranger on`). Turn it off with `--ranger off`. Its independent `--ranger-noise on` switch adds Ranger noise; `--noise` continues to control only IMU/Flow/ToF. Ranger readings are printed in mm and saved at nominal 10 Hz. Only the `--mission` navigator uses them; the stock EKF and PID never do. The historical comparison/recording runners retain their previous configuration; use the dedicated Ranger runner below for sensing tests.
+`run_sim.py` enables Multi-ranger in every mode by default (`--ranger on`). Turn it off with `--ranger off`. Its bench-measured noise (2 mm) is on by default; `--ranger-noise off` gives ideal ranging, and `--noise` continues to control only IMU/Flow/ToF. Ranger readings are printed in mm and saved at nominal 10 Hz. Only the `--mission` navigator uses them; the stock EKF and PID never do. The historical comparison/recording runners retain their previous configuration; use the dedicated Ranger runner below for sensing tests.
 
 The EKF modes with `run_sim.py --demo` default to 0-10 s takeoff/settle, 10-15 s hover, then 15-25 s move/settle to (0.5, 0, 1). Change the hover duration with `--hover-seconds 5` or edit `DEMO_HOVER_S` near the top of `run_sim.py`. Takeoff/move windows are `EKF_TAKEOFF_SETTLE_S` / `EKF_MOVE_SETTLE_S` in `flight_demo.py`.
 
@@ -332,7 +332,7 @@ state the PID sees (truth or EKF) ─────┼─> wedgebugStep()  50 Hz  
 - **Missions** live in [navigation/missions.py](navigation/missions.py): room, obstacles, start, waypoints, goal, scene file. `matlab_main` is `main.m` unchanged, in a 10 x 8 m room with its corner at the world origin. A new mission needs its scene built once with `build_mission_scene.py --mission NAME`; that script never writes `arena.usd`.
 - **CSV:** `build/missions/<mission>_<mode>.csv` adds navigator mode/phase/waypoint, the four ranges, and the commanded velocity and yaw rate to the usual firmware columns.
 
-Without Isaac Sim, the 2-D kinematic simulator reproduces the MATLAB results (matlab_main: goal at 73.3 s, closest gap 0.13 m) and compares the C and Python navigators:
+Without Isaac Sim, the 2-D kinematic simulator reproduces the MATLAB results (matlab_main, with the default 2 mm ranger noise: goal at 75.4 s, closest gap 0.13 m) and compares the C and Python navigators:
 
 ```bash
 python3 /workspace/sim/navigation/sim2d.py                     # Python reference; any Python 3 + numpy
@@ -378,7 +378,7 @@ For all four matched EKF runs (shadow/closed-loop, noise off/on), with CSVs, plo
 /isaac-sim/python.sh /workspace/sim/tests/smoke_firmware_ekf.py
 ```
 
-This headless runner writes to `build/ekf_baseline/` by default. Its `--output-dir` selects a different directory; `--mode ekf_closed_loop --noise on --seed 7` selects one combination. The smoke runner's default `--noise both` differs from `run_sim.py`'s `--noise off`.
+This headless runner writes to `build/ekf_baseline/` by default. Its `--output-dir` selects a different directory; `--mode ekf_closed_loop --noise on --seed 7` selects one combination. The smoke runner's default `--noise both` differs from `run_sim.py`, whose EKF modes default to `--noise on`.
 
 The existing motor/sign-test and ground-truth flight runner writes to `build/firmware_pid/` (`flight.csv`, `flight.png`, `sign_tests.json`, `summary.json`):
 
@@ -445,13 +445,13 @@ Recommended workflow for anything that will fly on the real drone:
 | `MASS_KG` | 0.030 (placeholder) | Measured total mass with battery + Flow deck + Ranger deck |
 | `INERTIA_KGM2` | `(1.6572e-5, 1.6656e-5, 2.9262e-5)` kg·m² in `run_sim.py`; placeholders, not measured for this vehicle | Estimate including battery and decks |
 | Motor dynamics | None (force changes instantly) | Kelvin's motor time constant |
-| Sensor noise (IMU, Flow, ToF) | Assumed values in `sensors.py` | Values from real hover logs |
+| Sensor noise (IMU, Flow, ToF) | IMU and ToF from static bench tests, motors off (`sensors.py`); Flow assumed | Flow from bench tests on a consistent floor and lighting; IMU noise with motors running (vibration) |
 | Sensor bias, delay | Bias not modeled; configurable additional delays all default to zero. IMU filtering still adds lag. | Values from real logs |
 | Flow noise vs EKF assumption | Noise-on Gaussian standard deviation and stock measurement standard deviation are both 2.0 firmware counts. Noise-off keeps the latter. | Measured noise and separately specified fault cases. Matching one standard deviation does not establish EKF optimality or eliminate Gaussian tail events; no custom gate is present. |
 | Battery voltage compensation | Firmware config enables it, but the simulation does not run the voltage-to-PWM stage. The adapter converts the pre-compensation force command directly to N. | Battery/motor model if needed |
 | Flow / ToF geometry | Stock measurement models on a flat floor; no camera images or scene raycasts, no texture failure/dropout model | Scene-dependent sensing if needed |
 | EKF observability | Flow/ToF provide no absolute XY or yaw reference; noise-on position drift is expected | External reference only if available on the real system |
-| Ranger deck | Five 27° ray cones (nearest hit), 10 Hz with one period of delivery delay, up to 4 m, from the datasheet sensor positions (heights unmeasured) | Measured noise and sensor heights; surface/lighting-dependent validity model if needed |
+| Ranger deck | Five 27° ray cones (nearest hit), 10 Hz with one period of delivery delay, up to 4 m, from the datasheet sensor positions (heights unmeasured) | Sensor heights; noise is bench-measured (2 mm); surface/lighting-dependent validity model if needed |
 | Aerodynamics (drag, ground effect) | No explicit model | Identify from real logs if needed |
 
 These are idealized baseline results, not a validated prediction of real-flight accuracy. The complete arming/watchdog/emergency state machines are not simulated. See [BASELINE_EKF.md](BASELINE_EKF.md) for measurement assumptions and the actual stability criteria.

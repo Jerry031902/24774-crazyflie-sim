@@ -124,9 +124,10 @@ metrics. Sensor cones rotate with the full sampled quaternion, not yaw alone.
 Monitor timestamps are absolute simulation time; navigator scans/events use
 navigation-relative time.
 
-`--noise` affects IMU/Flow/ToF. Independent `--ranger-noise on` uses the existing
-Isaac std **0.003 m**, not MATLAB main's **0.1 m**. Safety uses the enabled ranger
-std. These are simulation assumptions, not measured hardware accuracy.
+`--noise` affects IMU/Flow/ToF. Ranger noise is on by default (`--ranger-noise
+off` disables it) with the bench-measured std **0.002 m** (1.4-2.0 mm, four
+directions at 0.2/0.5 m), the same as MATLAB's default. Safety uses the enabled
+ranger std.
 
 ## Inspect results
 

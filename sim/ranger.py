@@ -23,7 +23,7 @@ from controllers.firmware_pid import rotation_and_rpy, vector3
 RANGER_PERIOD_MS = 100
 RANGER_MAX_DISTANCE_M = 4.0  # Nominal hardware range, not a guarantee on materials.
 RANGER_INVALID_MM = 32767   # Driver's invalid status sentinel, never a 32.767 m hit.
-RANGER_NOISE_STD_M = 0.003   # "Within a few millimeters" (Bitcraze); NOT calibrated to this drone.
+RANGER_NOISE_STD_M = 0.002   # Team bench test: 1.4-2.0 mm std, front/back/left/right at 0.2/0.5 m; upper end.
 RANGER_BIAS_M = 0.0
 # Every 100 ms the driver reads each sensor's result and restarts it, so a
 # value reaches range.c one period after its measurement began. The driver

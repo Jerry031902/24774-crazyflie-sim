@@ -8,6 +8,10 @@ the defaults, e.g.  p = default_params(); p.nav.v_cruise = 0.3
 import math
 from types import SimpleNamespace
 
+# The team's Multi-ranger, static bench test: 1.4-2.0 mm std, four directions at
+# 0.2 and 0.5 m (upper end). The default p.ranger.noise.
+RANGER_NOISE_MEASURED_M = 0.002
+
 
 def default_params():
     p = SimpleNamespace()
@@ -41,7 +45,7 @@ def default_params():
         latency=0.1,                # ...one period after that measurement started [s]
         offset=(0.01625, 0.0163, 0.01625, 0.0163),  # sensor face ahead of the body centre: front, left, back, right [m]
         resolution=0.001,           # the driver reports whole millimetres [m]
-        noise=0.0,                  # Gaussian range noise: std dev [m]...
+        noise=RANGER_NOISE_MEASURED_M,  # Gaussian range noise: std dev [m], bench-measured; 0 = ideal...
         noise_rel=0.0,              # ...plus this fraction of the range [-]
         p_invalid=0.0,              # chance a reading is invalid: nan, unknown rather than "no return" [-]
     )

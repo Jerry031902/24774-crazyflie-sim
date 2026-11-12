@@ -52,6 +52,7 @@ def sideways_speed(log):
 class RangerTests(unittest.TestCase):
     def test_rangers_see_walls_and_obstacles(self):
         p = default_params()
+        p.ranger.noise = 0                          # exact geometry, no bench noise
         p.ranger.fov, p.ranger.offset, p.ranger.resolution = 0, 0, 0  # exact centre-ray geometry
         env = room(obstacle_rect((5, 4), (1, 1)))
         np.testing.assert_allclose(read_rangers((3, 4), 0, env, p), [1.5, 4, 3, 4], atol=1e-12)
@@ -60,12 +61,14 @@ class RangerTests(unittest.TestCase):
     def test_sensor_faces_and_whole_millimetres(self):
         # Multi-ranger datasheet: faces 16.25 mm (front/back) and 16.3 mm (left/right) from the centre.
         p = default_params()
+        p.ranger.noise = 0                          # exact geometry, no bench noise
         p.ranger.fov = 0
         env = room(obstacle_rect((5, 4), (1, 1)))
         np.testing.assert_allclose(read_rangers((3, 4), 0, env, p), [1.484, 3.984, 2.984, 3.984], atol=1e-9)
 
     def test_readings_arrive_one_driver_period_late(self):
         p = default_params()
+        p.ranger.noise = 0                          # exact geometry, no bench noise
         log, _ = fly(room(), (1, 4), (2, 4), p=p)
         ticks = round(p.ranger.latency / p.dt)
         self.assertTrue(np.all(np.isinf(log["ranges"][:ticks])))
@@ -80,6 +83,7 @@ class RangerTests(unittest.TestCase):
 
     def test_cone_sees_block_off_the_centre_line(self):
         p = default_params()
+        p.ranger.noise = 0                          # exact geometry, no bench noise
         env = room(obstacle_rect((5, 4.2), (0.2, 0.2)))
         self.assertAlmostEqual(read_rangers((2, 4), 0, env, p)[0], 2.9, delta=0.05)
         p.ranger.fov = 0
@@ -149,7 +153,7 @@ class ReadingRuleTests(unittest.TestCase):
 
 class NavigationTests(unittest.TestCase):
     def test_matlab_main_mission_matches_matlab_results(self):
-        # matlab-trajectory-sim/README.md, 0 cm noise: 73.3 s, closest gap 0.13 m.
+        # Default (bench-measured, 2 mm) ranger noise: 75.4 s, closest gap 0.13 m.
         for backend in BACKENDS:
             with self.subTest(backend=backend):
                 env = MATLAB_MAIN.environment()
@@ -157,7 +161,7 @@ class NavigationTests(unittest.TestCase):
                 self.assertTrue(m["arrived"])
                 self.assertFalse(m["collided"])
                 self.assertEqual(m["targets_reached"], 4)
-                self.assertAlmostEqual(m["t_finish"], 73.3, delta=0.1)
+                self.assertAlmostEqual(m["t_finish"], 75.4, delta=0.1)
                 self.assertAlmostEqual(m["min_clearance"], 0.126, delta=0.01)
 
     def test_open_room_flies_straight_line(self):

@@ -134,7 +134,7 @@ dpsi/dt = r                      |r| <= yaw_rate_max
 
 The deck's fifth (up) sensor is not modelled in 2-D. The room walls are visible to the sensors. With `fov = 0` each sensor is a single centre ray, which can miss a corner that is within the drone's own width.
 
-**Noise.** Each reading that hits something gets zero-mean Gaussian noise with standard deviation `p.ranger.noise + p.ranger.noise_rel × range`, drawn independently for each sensor and each update. Both terms are 0 in `default_params`; `main.m` explicitly sets 0.1 m standard deviation for its run. This is a simulation assumption, not a measured hardware error.
+**Noise.** Each reading that hits something gets zero-mean Gaussian noise with standard deviation `p.ranger.noise + p.ranger.noise_rel × range`, drawn independently for each sensor and each update. By default `p.ranger.noise` is the team's bench measurement, `p.ranger.noise_measured` = 0.002 m (1.4-2.0 mm std, front/back/left/right at 0.2 and 0.5 m), and `noise_rel` is 0. Set `p.ranger.noise = 0` for ideal ranging. `main.m` keeps a commented-out 0.1 m line as a stress test.
 
 ## Ranger noise study
 
@@ -142,8 +142,10 @@ The deck's fifth (up) sensor is not modelled in 2-D. The room walls are visible 
 
 With safety supervision disabled, the hardware ranger timing and sensor
 positions, 0.05 m hysteresis, readings paired with their heading, the wall
-fit and the passing-speed limit, the 0 cm run takes 73.3 s with a closest
-gap of 0.13 m (2-D Python port, which matches MATLAB exactly without noise).
+fit and the passing-speed limit, the run takes 75.4 s with a closest gap of
+0.13 m with the default 2 mm ranger noise, and 73.3 s / 0.13 m without noise
+(2-D Python port; it matches MATLAB exactly without noise, while with noise
+the two draw different random numbers).
 The table below is historical: it was measured with the original navigator
 and the previous ranger model (25 Hz, no delay, sensors at the body centre,
 no hysteresis). Run `safety_validation` for a current on/off comparison, or

@@ -23,14 +23,14 @@ if __package__ in (None, ""):
     from navigation.geometry import obstacle_distance, read_rangers, rot2d, sat_norm, target_names, \
         validate_waypoints, wrap_to_pi
     from navigation.missions import MISSIONS
-    from navigation.params import default_params
+    from navigation.params import RANGER_NOISE_MEASURED_M, default_params
     from navigation.wedgebug import MODES, PHASES, RangerFrame
 else:
     from .firmware_nav import make_navigator
     from .geometry import obstacle_distance, read_rangers, rot2d, sat_norm, target_names, \
         validate_waypoints, wrap_to_pi
     from .missions import MISSIONS
-    from .params import default_params
+    from .params import RANGER_NOISE_MEASURED_M, default_params
     from .wedgebug import MODES, PHASES, RangerFrame
 
 
@@ -180,7 +180,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--mission", choices=sorted(MISSIONS), default="matlab_main")
     parser.add_argument("--backend", choices=("python", "firmware"), default="python")
-    parser.add_argument("--ranger-noise", type=float, default=0.0, help="Gaussian ranger noise std dev [m]")
+    parser.add_argument("--ranger-noise", type=lambda v: RANGER_NOISE_MEASURED_M if v == "measured" else float(v),
+                        default=RANGER_NOISE_MEASURED_M,
+                        help="Gaussian ranger noise std dev [m], or 'measured' (default: the bench value, 0.002)")
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--plot", type=Path, help="Save a top-down plot (needs matplotlib)")
     args = parser.parse_args()

@@ -102,11 +102,15 @@ dropouts are not simulated. The floor is assumed textured and valid PMW status i
 assumed 0xB0. Existing numeric range/attitude checks are still applied. The C EKF
 receives no pose, position or velocity ground-truth measurements.
 
-All noise/delay settings are constants at the top of `sensors.py`. Default
-noise-on assumptions are independent Gaussian samples: accelerometer 0.005 G per
-axis, gyro 0.1 deg/s per axis, Flow 2.0 firmware counts per axis, ToF 0.003 m.
-These have not been identified from the team's hardware. IMU noise is added
-before its software LPFs. All additional delays default to zero; their integer
+All noise/delay settings are constants at the top of `sensors.py`. Noise-on
+draws independent Gaussian samples. IMU and ToF values come from the team's
+static bench tests (motors off): the filtered std was gyro 0.114 / 0.169 / 0.126
+deg/s and accelerometer 0.00133 / 0.00101 / 0.00138 G (x / y / z), and ToF
+1.65-2.06 mm at 0.5-0.7 m (the sim uses 2.06 mm). IMU noise is added before
+its software LPFs, so it is injected at the bench std divided by each filter's
+white-noise gain (0.416 at 80 Hz, 0.258 at 30 Hz): 0.274 / 0.406 / 0.303 deg/s
+and 0.0052 / 0.0039 / 0.0054 G. Flow keeps an assumed 2.0 firmware counts per
+axis until it is measured on a consistent floor and lighting. All additional delays default to zero; their integer
 millisecond queue implementation is tested separately. Noise-off leaves firmware
 filters, process noise, and stock measurement stdDev untouched.
 

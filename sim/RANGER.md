@@ -43,9 +43,10 @@ The following are explicit approximations, not hardware-calibrated claims:
 - Default origins are the datasheet sensor faces, `RANGER_ORIGINS_BODY_M`. Their
   heights above the body origin are unmeasured and left at 0. Both origin and
   direction rotate with the full body quaternion, including tilt.
-- Zero-mean Gaussian noise std 0.003 m matches the specified "few millimeters"
-  but is not calibrated to this drone. Bias defaults to zero. Integer-mm
-  quantization is modeled.
+- Zero-mean Gaussian noise std 0.002 m, the upper end of the team's static
+  bench test (1.4-2.0 mm, front/back/left/right at 0.2 and 0.5 m). The up
+  sensor and longer ranges were not measured. Bias defaults to zero.
+  Integer-mm quantization is modeled.
 - All five axes are measured simultaneously at 0, 0.1, 0.2 s, ... and delivered
   one period later (`RANGER_DELAY_MS = 100`), so the first values arrive at 0.1 s.
   The geometry is taken at the start of each 41 ms measurement. No I2C/RTOS
@@ -73,8 +74,9 @@ to `(0.5,0,1)` m at 15 s. The GUI keeps holding the final target. Add
 
 - `--ranger on` is the `run_sim.py` default in all modes, including altitude PID.
 - `--ranger off` restores the previous sensing configuration.
-- `--noise on` affects IMU/Flow/ToF only. `--ranger-noise on` independently enables
-  Multi-ranger noise; both use `--seed`, but independent RNG streams.
+- `--noise` affects IMU/Flow/ToF only. Multi-ranger noise (bench-measured, 2 mm)
+  is on by default with `--ranger on`; `--ranger-noise off` gives ideal ranging.
+  Both use `--seed`, but independent RNG streams.
 - `--ranger-csv PATH` selects the standalone range log, even without `--demo`.
 - Edit the top-level constants in `ranger.py` for noise std, bias, extra delay,
   nominal maximum range, and optical origins. Restart the script after editing.
