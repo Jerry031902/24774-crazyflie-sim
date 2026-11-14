@@ -176,7 +176,7 @@ control mode 与 sim 的 XYZ position + absolute yaw 一致；**trajectory 不�
 
 | 优先级 | 要标定的量 | 需要什么真机信息 | 当前 file / variable / value | 后续如何处理 |
 |---|---|---|---|---|
-| P0，直接换 | 整机 mass | 完整配置 mass，多次称重 | `sim/run_sim.py`: `MASS_KG=0.030` kg | 用 `mass_g / 1000` 替换，注明对应 battery/decks |
+| P0，已换 | 整机 mass | 完整配置 mass；当前读数 33 g，scale resolution 1 g | `sim/run_sim.py`: `MASS_KG=0.033` kg，含 battery + Flow deck + Ranger deck | 配置变化后重新称重；scale resolution 不等于 measurement accuracy |
 | P0，已换（2026-11 static bench） | Gyro injected noise | motors-off filtered gyro、实际 logging rate；多个静止 run | `sim/sensors.py`: `GYRO_MEASURED_STD_DEG_S=(0.114, 0.169, 0.126)`，按 80 Hz LPF gain 0.416 换算成 injected std | sim 在 1 kHz filter **之前**加 noise。用同一 80 Hz LPF 和 logging sampling 后的 std/频谱匹配，不能直接填真机 filtered std |
 | P0，已换（2026-11 static bench） | Acc injected noise | 已知静止姿态的 filtered acc、gravity reference、重复 run | `sim/sensors.py`: `ACCEL_MEASURED_STD_G=(0.00133, 0.00101, 0.00138)`，per-axis，按 30 Hz LPF gain 0.258 换算 | 去掉正确 gravity projection 后分析；按同一 30 Hz LPF 和采样匹配。只有一个 scalar 参数；若轴间差异大，需要先扩展成 per-axis model |
 | P0，拟合后换 | Flow injected noise | 多高度、有效 status 的 raw counts、surface/lighting、mean/std/valid fraction | `sim/sensors.py`: `FLOW_NOISE_STD_COUNTS=2.0` | 在 firmware-aligned frame、interface counts 单位拟合。若 height/surface dependence、bias 或 quantization 显著，扩展 model，而不是强行只换 scalar |

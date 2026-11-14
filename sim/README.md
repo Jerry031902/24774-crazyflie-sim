@@ -442,7 +442,7 @@ Recommended workflow for anything that will fly on the real drone:
 
 | Item | Current value / status | Replace with |
 |---|---|---|
-| `MASS_KG` | 0.030 (placeholder) | Measured total mass with battery + Flow deck + Ranger deck |
+| `MASS_KG` | 0.033 kg (measured with battery + Flow deck + Ranger deck; scale resolution 1 g) | Recheck if the vehicle configuration changes |
 | `INERTIA_KGM2` | `(1.6572e-5, 1.6656e-5, 2.9262e-5)` kg·m² in `run_sim.py`; placeholders, not measured for this vehicle | Estimate including battery and decks |
 | Motor dynamics | None (force changes instantly) | Kelvin's motor time constant |
 | Sensor noise (IMU, Flow, ToF) | IMU and ToF from static bench tests, motors off (`sensors.py`); Flow assumed | Flow from bench tests on a consistent floor and lighting; IMU noise with motors running (vibration) |

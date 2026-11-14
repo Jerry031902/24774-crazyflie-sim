@@ -24,9 +24,9 @@ from pathlib import Path
 from controllers.constant_thrust import ConstantThrustController
 from controllers.altitude_pid import AltitudePIDController
 
-# Editable settings. Replace both placeholders with the team's measurements.
+# Editable settings. Mass is measured; inertia remains a placeholder.
 # INERTIA_KGM2 is about the COM, with principal axes aligned to body XYZ.
-MASS_KG = 0.030
+MASS_KG = 0.033  # Measured with battery, Flow deck and Ranger deck; scale resolution 1 g.
 INERTIA_KGM2 = (1.6572e-5, 1.6656e-5, 2.9262e-5)  # Placeholder, kg*m^2.
 MODE = "altitude_pid"  # Also "firmware_pid", "free_fall" or "hover_ff".
 EKF_MODES = ("ekf_shadow", "ekf_closed_loop")
