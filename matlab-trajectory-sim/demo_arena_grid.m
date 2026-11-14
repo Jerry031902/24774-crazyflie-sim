@@ -11,7 +11,7 @@ clear; clc; close all;
 setup_paths();
 p = default_params();
 p.safety.enabled = false;   % as in the Isaac Sim comparison runs; true = supervised
-p.ranger.noise   = 0;       % Gaussian ranger noise, std dev [m]
+p.ranger.noise   = 0;       % ideal ranging, as in the Isaac Sim runs; delete for the bench-measured 2 mm default
 p.t_max          = 120;     % per run [s]
 
 %% Scenarios: all of them, or by name, e.g. arena_scenarios({'center', 'lower', 'upper'})

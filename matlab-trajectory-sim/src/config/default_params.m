@@ -40,7 +40,8 @@ p.ranger.period     = 0.1;          % the driver reads every sensor every 100 ms
 p.ranger.latency    = 0.1;          % ...one period after that measurement started [s]
 p.ranger.offset     = [0.01625; 0.0163; 0.01625; 0.0163];  % sensor face ahead of the body centre: front, left, back, right [m]
 p.ranger.resolution = 0.001;        % the driver reports whole millimetres [m]
-p.ranger.noise      = 0;            % Gaussian range noise: std dev [m]...
+p.ranger.noise_measured = 0.002;    % the team's deck, static bench test: 1.4-2.0 mm std, four directions [m]
+p.ranger.noise      = p.ranger.noise_measured;  % Gaussian range noise: std dev [m], bench-measured; 0 = ideal...
 p.ranger.noise_rel  = 0;            % ...plus this fraction of the range [-]
 p.ranger.p_invalid  = 0;            % chance a reading is invalid: NaN, unknown rather than "no return" [-]
 

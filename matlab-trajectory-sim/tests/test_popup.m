@@ -5,6 +5,7 @@ end
 function setupOnce(tc)
 addpath(fileparts(fileparts(mfilename('fullpath')))); setup_paths();
 tc.TestData.p = default_params();
+tc.TestData.p.ranger.noise = 0;  % written for ideal ranging; bench-measured noise is now the default
 end
 
 function testGeometryAndClearanceRespectAppearance(tc)

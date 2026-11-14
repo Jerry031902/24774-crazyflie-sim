@@ -31,9 +31,9 @@ sensor phase and noise; see [POPUP.md](POPUP.md) for results, replay and control
 interpretation. Normal `main` has no pop-up obstacle.
 
 `main` is the simplest WedgeBug run: one 1 m box between the start and the goal,
-no waypoints and no ranger noise. The drone flies at the goal, stops 1 m short of
-the box and sweeps, goes round the shorter (lower) side through one pass point,
-then flies on to the goal (about 25 s, one sweep). To change the mission, edit
+no waypoints, and the default (bench-measured, 2 mm) ranger noise. The drone flies
+at the goal, stops 1 m short of the box and sweeps, goes round the shorter (lower)
+side through one pass point, then flies on to the goal (25-27 s, one sweep). To change the mission, edit
 the **Mission** section of `main.m`. Positions are in metres inside the 10 × 8 m room:
 
 ```matlab
@@ -43,9 +43,8 @@ goal      = [8.5 4.0];
 obstacles = {obstacle_square([5.0 4.25], 1.0)};
 ```
 
-The original full mission (three waypoints, one obstacle on each leg, 0.1 m
-ranger noise; the Isaac Sim mission `matlab_main`) is kept, commented out, just
-below it:
+The original full mission (three waypoints, one obstacle on each leg; the Isaac
+Sim mission `matlab_main`) is kept, commented out, just below it:
 
 ```matlab
 start     = [0.8 0.8];
@@ -161,7 +160,7 @@ dpsi/dt = r                      |r| <= yaw_rate_max
 
 The deck's fifth (up) sensor is not modelled in 2-D. The room walls are visible to the sensors. With `fov = 0` each sensor is a single centre ray, which can miss a corner that is within the drone's own width.
 
-**Noise.** Each reading that hits something gets zero-mean Gaussian noise with standard deviation `p.ranger.noise + p.ranger.noise_rel × range`, drawn independently for each sensor and each update. Both terms are 0 in `default_params` and in `main.m`; the full mission commented out in `main.m` sets 0.1 m standard deviation. This is a simulation assumption, not a measured hardware error.
+**Noise.** Each reading that hits something gets zero-mean Gaussian noise with standard deviation `p.ranger.noise + p.ranger.noise_rel × range`, drawn independently for each sensor and each update. By default `p.ranger.noise` is the team's bench measurement, `p.ranger.noise_measured` = 0.002 m (1.4-2.0 mm std, front/back/left/right at 0.2 and 0.5 m), and `noise_rel` is 0. Set `p.ranger.noise = 0` for ideal ranging. `main.m` keeps a commented-out 0.1 m line as a stress test.
 
 ## Ranger noise study
 
@@ -169,8 +168,10 @@ The deck's fifth (up) sensor is not modelled in 2-D. The room walls are visible 
 
 With safety supervision disabled, the hardware ranger timing and sensor
 positions, 0.05 m hysteresis, readings paired with their heading, the wall
-fit and the passing-speed limit, the 0 cm run of the full mission takes 73.3 s with a closest
-gap of 0.13 m (2-D Python port, which matches MATLAB exactly without noise).
+fit and the passing-speed limit, the full mission takes 75.4 s with a closest gap of
+0.13 m with the default 2 mm ranger noise, and 73.3 s / 0.13 m without noise
+(2-D Python port; it matches MATLAB exactly without noise, while with noise
+the two draw different random numbers).
 The table below is historical: it was measured with the original navigator
 and the previous ranger model (25 Hz, no delay, sensors at the body centre,
 no hysteresis). Run `safety_validation` for a current on/off comparison, or

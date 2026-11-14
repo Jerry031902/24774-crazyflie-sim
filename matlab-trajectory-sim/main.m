@@ -16,7 +16,7 @@
 clear; clc; close all;
 setup_paths();
 p = default_params();
-p.ranger.noise = 0;     % Gaussian ranger noise, std dev [m]; try 0.1 to see how it copes
+% p.ranger.noise = 0.1;   % stress test: 50x the bench-measured ranger noise (default p.ranger.noise_measured, 0.002 m)
 % p.safety.enabled = false; % reproduce the original navigator without supervision
 
 %% Mission (metres, inside the p.map.xlim x p.map.ylim room)
@@ -40,7 +40,6 @@ obstacles = {obstacle_square([5.0 4.25], 1.0)};      % box
 %              obstacle_rect([5.5 4.0], [0.2 3.4]), ...  % long wall
 %              obstacle_circle([8.0 2.9], 0.3), ...      % pillar
 %              obstacle_rect([7.6 5.3], [1.6 0.5])};     % bench
-% p.ranger.noise = 0.1;
 
 %% Fly it
 env     = make_environment(p, obstacles);

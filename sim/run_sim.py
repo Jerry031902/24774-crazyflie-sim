@@ -324,12 +324,13 @@ def main():
     parser.add_argument("--hover-seconds", type=float, default=DEMO_HOVER_S,
                         help="Hover duration for --demo, in simulation seconds (default: %(default)s)")
     parser.add_argument("--csv", type=Path, help="Firmware PID flight log, one row per physics step")
-    parser.add_argument("--noise", choices=("off", "on"), default="off", help="EKF simulated sensor noise")
+    parser.add_argument("--noise", choices=("off", "on"),
+                        help="Bench-measured IMU/Flow/ToF noise (default: on in EKF modes, off otherwise)")
     parser.add_argument("--seed", type=int, default=7, help="Sensor noise seed; independent EKF and Ranger RNG streams")
     parser.add_argument("--ranger", choices=("off", "on"), default="on",
                         help="Five-direction geometric ranging; only --mission avoids obstacles with it (default: on)")
-    parser.add_argument("--ranger-noise", choices=("off", "on"), default="off",
-                        help="Independent Multi-ranger noise, separate from EKF --noise")
+    parser.add_argument("--ranger-noise", choices=("off", "on"),
+                        help="Bench-measured Multi-ranger noise, separate from --noise (default: on with --ranger on)")
     parser.add_argument("--ranger-csv", type=Path, help="10 Hz Ranger log; defaults beside flight CSV")
     parser.add_argument("--mission", help="WedgeBug navigation mission (sim/navigation/missions.py) "
                         "in its own scene; an alternative to --demo")
@@ -366,6 +367,11 @@ def main():
         parser.error("--seed must be nonnegative")
     if args.ranger == "off" and (args.ranger_csv or args.ranger_noise == "on"):
         parser.error("--ranger-csv and --ranger-noise on require --ranger on")
+    # Measured sensor noise is on by default wherever that sensor model is used.
+    if args.noise is None:
+        args.noise = "on" if args.mode in EKF_MODES else "off"
+    if args.ranger_noise is None:
+        args.ranger_noise = args.ranger
     mission = None
     if args.mission:
         from navigation.missions import MISSIONS

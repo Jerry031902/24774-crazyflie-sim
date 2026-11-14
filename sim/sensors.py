@@ -3,7 +3,8 @@
 Source references are relative to the firmware root; see BASELINE_EKF.md.
 Flat floor at world Z=0, valid textured surface, calibrated/booted IMU, no bias.
 Continuous-valued interface measurements intentionally omit ADC/pixel quantization.
-Noise values are simulation assumptions, NOT measurements of the team's hardware.
+IMU and ToF noise follow the team's static bench tests (motors off); Flow noise
+is still an assumption until it is measured on a consistent floor and lighting.
 """
 
 from dataclasses import dataclass
@@ -23,11 +24,37 @@ GYRO_LPF_HZ = 80
 ACCEL_LPF_HZ = 30
 GRAVITY_M_S2 = 9.81
 
-# Independent, zero-mean Gaussian noise BEFORE the IMU software filters.
-ACCEL_NOISE_STD_G = 0.005
-GYRO_NOISE_STD_DEG_S = 0.1
-FLOW_NOISE_STD_COUNTS = 2.0
-TOF_NOISE_STD_M = 0.003
+
+def lpf2p_noise_gain(sample_hz, cutoff_hz):
+    """Output/input std of white noise through the firmware 2-pole LPF.
+
+    Same coefficients as lpf2pSetCutoffFreq (src/utils/src/filter.c); the gain
+    is the root energy of its impulse response.
+    """
+    ohm = math.tan(math.pi * cutoff_hz / sample_hz)
+    c = 1 + 2 * math.cos(math.pi / 4) * ohm + ohm * ohm
+    b0 = ohm * ohm / c
+    a1, a2 = 2 * (ohm * ohm - 1) / c, (1 - 2 * math.cos(math.pi / 4) * ohm + ohm * ohm) / c
+    d1 = d2 = energy = 0.0
+    for i in range(5000):
+        d0 = (1.0 if i == 0 else 0.0) - d1 * a1 - d2 * a2
+        energy += (b0 * d0 + 2 * b0 * d1 + b0 * d2) ** 2
+        d2, d1 = d1, d0
+    return math.sqrt(energy)
+
+
+# Static bench tests of the team's drone, motors off: std of the logged
+# gyro.* / acc.* (AFTER the firmware filters) and of range.zrange.
+GYRO_MEASURED_STD_DEG_S = (0.114, 0.169, 0.126)  # x, y, z
+ACCEL_MEASURED_STD_G = (0.00133, 0.00101, 0.00138)  # x, y, z
+TOF_MEASURED_STD_M = (0.00165, 0.00206)  # range over runs at 0.5-0.7 m height
+
+# Independent, zero-mean Gaussian noise injected BEFORE the IMU software
+# filters, scaled up so the filtered output matches the bench std.
+GYRO_NOISE_STD_DEG_S = tuple(s / lpf2p_noise_gain(IMU_HZ, GYRO_LPF_HZ) for s in GYRO_MEASURED_STD_DEG_S)
+ACCEL_NOISE_STD_G = tuple(s / lpf2p_noise_gain(IMU_HZ, ACCEL_LPF_HZ) for s in ACCEL_MEASURED_STD_G)
+FLOW_NOISE_STD_COUNTS = 2.0  # Assumption: bench results varied with floor texture and lighting.
+TOF_NOISE_STD_M = TOF_MEASURED_STD_M[1]  # Upper end; only 0.5-0.7 m was measured.
 GYRO_DELAY_MS = 0
 ACCEL_DELAY_MS = 0
 FLOW_DELAY_MS = 0
@@ -193,6 +220,8 @@ class SensorSuite:
         return {"noise": self.noise, "seed": self.seed, "deck": "Flow v2 / VL53L1X",
                 "delays_ms": self.delays, "accel_noise_std_G": ACCEL_NOISE_STD_G,
                 "gyro_noise_std_deg_s": GYRO_NOISE_STD_DEG_S,
+                "accel_filtered_std_G": ACCEL_MEASURED_STD_G,
+                "gyro_filtered_std_deg_s": GYRO_MEASURED_STD_DEG_S,
                 "flow_noise_std_counts": FLOW_NOISE_STD_COUNTS, "tof_noise_std_m": TOF_NOISE_STD_M,
                 "imu_hz": IMU_HZ, "flow_nominal_hz": 1000/FLOW_PERIOD_MS,
                 "tof_nominal_hz": 1000/TOF_PERIOD_MS,
