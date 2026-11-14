@@ -1,5 +1,40 @@
 # Hongfei: horizontal LQR prototype
 
+## Tuned MATLAB step test (November 14, 2026)
+
+Run `run_lqr_tuned_demo` in MATLAB from this folder for a live animation and GIF,
+or `run_lqr_tuned_demo(false,false)` for an invisible run without GIF export.
+Base MATLAB is sufficient; no Control System Toolbox is needed. Outputs are
+written to `tuned_results/`. The original scripts below are retained unchanged.
+
+![Tuned LQR response](tuned_results/final_frame.png)
+
+### Conditions and results
+
+- 0.5 m x-position step from rest; y target zero; yaw zero; fixed height; no obstacles.
+- 100 Hz control; exact ZOH design; Q = diag(800,800,80,80), R = diag(300,300).
+- Assumed linear drag beta = 0.5 /s; assumed first-order attitude lag tau = 0.08 s.
+- Per-axis roll/pitch command limits: +/-10 degrees; true-state feedback, no EKF or sensor noise.
+- Plant uses tilt-based horizontal acceleration and linear drag, with 0.002 s integration substeps.
+- MATLAB result: settling 1.46 s; six-second x tracking RMSE 0.146391 m; no observed overshoot.
+- Settling means x error <= 0.03 m and horizontal speed <= 0.05 m/s, maintained through the end of the 6 s run.
+- RMSE includes the initial movement and is computed over all 601 logged samples.
+- Pitch command reaches the 10-degree limit. Faster tuning increases command effort; it is not evidence of lower energy consumption.
+
+[Raw trace](tuned_results/lqr_drag_log.csv) | [Metrics](tuned_results/metrics.json)
+
+This candidate was selected using nominal and drag/lag sensitivity cases; these
+are tuning evidence, not independent robustness validation. Results are from an
+assumed 2-D MATLAB plant, not stock inner PID loops, Isaac Sim, or flight.
+The first-order lag represents attitude response, not sensor latency.
+Firmware gains are unchanged. Validate with estimated feedback, retained inner
+controllers, and Kelvin's braking logic before adopting these gains in firmware.
+Historical CPU results under docs/Hongfei/results are a different experiment and
+must not be combined with these MATLAB metrics.
+
+---
+
+
 The MATLAB files below remain standalone. The shared C implementation, firmware
 switch, navigation velocity interface, and Isaac/PID comparison commands are now
 in [START_HERE_HONGFEI.md](../START_HERE_HONGFEI.md).
@@ -126,3 +161,4 @@ claim completed Isaac Sim integration, PID comparison, or hardware validation.
 - [MATLAB dlqr equations](https://www.mathworks.com/help/control/ref/lti.dlqr.html):
   discrete Riccati equation and gain formula; this script implements its own
   iteration rather than requiring dlqr.
+
