@@ -1,0 +1,1 @@
+{"target_m":0.5,"overshoot_percent":0,"settling_s":1.46,"rmse_m":0.14639079949395567,"beta_design_per_s":0.5,"beta_plant_per_s":0.5,"attitude_tau_s":0.08,"angle_limit_deg":10,"duration_s":6}
