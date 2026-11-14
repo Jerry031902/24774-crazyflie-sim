@@ -8,7 +8,19 @@ This is a top-down 2-D simulation of a Crazyflie with a Multi-ranger deck flying
 main               % fly the mission in main.m: metrics, plots (Figure 1), playback (Figure 2)
 runtests('tests')  % unit and closed-loop tests
 demo_popup        % obstacle appears during flight; delayed sensing and braking
+demo_arena_grid   % start & goal only, with obstacles: a grid of arena maps, one per scenario
 ```
+
+`demo_arena_grid` flies each scenario in `src/env/arena_scenarios.m` and draws
+the maps side by side, with the path blue in GO_TO_GOAL and orange in AVOID.
+Triangles mark each mode change and diamonds the pass points. Each title gives
+PASS, COLLISION, GAVE UP or TIMEOUT, the closest gap, the finish time and the
+time spent in AVOID. The first row is the Isaac Sim arena (`sim/build_scene.py`:
+6 × 6 m, four 0.30 m pillars) along its center, lower and upper lanes. The second
+row adds a long wall (pass point round its end), a U-shaped cup (wall-following
+out of it) and a diagonal through a row of pillars. Safety and ranger noise are
+off, as in the Isaac Sim comparison runs; set them at the top of the script.
+Add a scenario with another `scenario(...)` line in `arena_scenarios.m`.
 
 Figure 2 has a **Replay** button (it reads **Stop** while playing) and a speed menu, so you can watch the run again at any time.
 
@@ -16,13 +28,28 @@ Figure 2 has a **Replay** button (it reads **Stop** while playing) and a speed m
 the cruising vehicle. Change its body gap, appearance time, noise or Safety flag
 in the script. `popup_validation` compares stopping boundaries across distance,
 sensor phase and noise; see [POPUP.md](POPUP.md) for results, replay and controller
-interpretation. Normal `main` retains the original pre-existing obstacle mission.
+interpretation. Normal `main` has no pop-up obstacle.
 
-To change the mission, edit the **Mission** section of `main.m`. Positions are in metres inside the 10 × 8 m room:
+`main` is the simplest WedgeBug run: one 1 m box between the start and the goal,
+no waypoints and no ranger noise. The drone flies at the goal, stops 1 m short of
+the box and sweeps, goes round the shorter (lower) side through one pass point,
+then flies on to the goal (about 25 s, one sweep). To change the mission, edit
+the **Mission** section of `main.m`. Positions are in metres inside the 10 × 8 m room:
+
+```matlab
+start     = [1.5 4.0];
+waypoints = [];                                  % or an N-by-2 list, flown in order
+goal      = [8.5 4.0];
+obstacles = {obstacle_square([5.0 4.25], 1.0)};
+```
+
+The original full mission (three waypoints, one obstacle on each leg, 0.1 m
+ranger noise; the Isaac Sim mission `matlab_main`) is kept, commented out, just
+below it:
 
 ```matlab
 start     = [0.8 0.8];
-waypoints = [3.4 4.2; 6.6 2.0; 9.4 3.8];   % or [] to fly straight to the goal
+waypoints = [3.4 4.2; 6.6 2.0; 9.4 3.8];
 goal      = [6.4 6.4];
 obstacles = {obstacle_square([2.5 3], 1), obstacle_rect([5.5 4], [0.2 3.4]), ...
              obstacle_circle([8.0 2.9], 0.3), obstacle_rect([7.6 5.3], [1.6 0.5])};
@@ -134,7 +161,7 @@ dpsi/dt = r                      |r| <= yaw_rate_max
 
 The deck's fifth (up) sensor is not modelled in 2-D. The room walls are visible to the sensors. With `fov = 0` each sensor is a single centre ray, which can miss a corner that is within the drone's own width.
 
-**Noise.** Each reading that hits something gets zero-mean Gaussian noise with standard deviation `p.ranger.noise + p.ranger.noise_rel × range`, drawn independently for each sensor and each update. Both terms are 0 in `default_params`; `main.m` explicitly sets 0.1 m standard deviation for its run. This is a simulation assumption, not a measured hardware error.
+**Noise.** Each reading that hits something gets zero-mean Gaussian noise with standard deviation `p.ranger.noise + p.ranger.noise_rel × range`, drawn independently for each sensor and each update. Both terms are 0 in `default_params` and in `main.m`; the full mission commented out in `main.m` sets 0.1 m standard deviation. This is a simulation assumption, not a measured hardware error.
 
 ## Ranger noise study
 
@@ -142,7 +169,7 @@ The deck's fifth (up) sensor is not modelled in 2-D. The room walls are visible 
 
 With safety supervision disabled, the hardware ranger timing and sensor
 positions, 0.05 m hysteresis, readings paired with their heading, the wall
-fit and the passing-speed limit, the 0 cm run takes 73.3 s with a closest
+fit and the passing-speed limit, the 0 cm run of the full mission takes 73.3 s with a closest
 gap of 0.13 m (2-D Python port, which matches MATLAB exactly without noise).
 The table below is historical: it was measured with the original navigator
 and the previous ranger model (25 Hz, no delay, sensors at the body centre,
@@ -164,16 +191,16 @@ At 20 cm, 4 runs were still re-sweeping when they hit `t_max`, and 2 gave up on 
 
 | Folder | Contents |
 |---|---|
-| `main.m` | Entry script; the mission is defined here |
+| `main.m` | Entry script; the mission is defined here (one box and a goal; the full mission commented out) |
 | `src/config` | `default_params`: every setting in one struct (vehicle, rangers, navigator) |
-| `src/env` | `make_environment`, `obstacle_square`, `obstacle_rect`, `obstacle_circle`, `obstacle_distance` |
+| `src/env` | `make_environment`, `obstacle_square`, `obstacle_rect`, `obstacle_circle`, `obstacle_distance`, `arena_scenarios` (the scenarios of `demo_arena_grid`) |
 | `src/sensors` | `read_rangers` |
 | `src/nav` | `navigator_init`, `navigator_step`, `validate_waypoints`, `target_names` |
 | `src/model` | `dynamics_step`, `sat_norm` |
 | `src/sim` | `run_simulation` |
 | `src/metrics` | `compute_metrics`, `print_metrics` |
 | `src/analysis` | `noise_study`: the mission flown repeatedly with noisy rangers |
-| `src/viz` | `plot_results` (map coloured by mode, hit and leave points, sensor/speed/clearance plots), `animate_run` (rays, leave zone, replay, MP4 export) |
+| `src/viz` | `plot_results` (map coloured by mode, hit and leave points, sensor/speed/clearance plots), `animate_run` (rays, leave zone, replay, MP4 export), `plot_scenario_grid` (one arena map per run, coloured by mode) |
 | `tests` | `test_drone_sim`: limits, sensors, straight-line flight, square/rectangle/circle and L/U-of-rectangles runs (every move sensed), ranger noise, unreachable and invalid waypoints, no waypoints |
 
 ## Metrics

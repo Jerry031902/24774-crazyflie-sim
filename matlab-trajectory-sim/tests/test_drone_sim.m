@@ -297,6 +297,28 @@ end
 v(sim_log.dir == 0) = 0;
 end
 
+function testArenaScenarios(tc)
+% Every scenario of DEMO_ARENA_GRID reaches its goal without touching
+% anything, and the grid plot draws them.
+p = tc.TestData.p;
+scenarios = arena_scenarios();
+for k = numel(scenarios):-1:1
+    sc = scenarios(k);
+    pk = p;
+    pk.map.xlim = sc.xlim;
+    pk.map.ylim = sc.ylim;
+    env = make_environment(pk, sc.obstacles);
+    sim_log = run_simulation(sc.start, [], sc.goal, env, pk);
+    m = compute_metrics(sim_log, env, pk);
+    verifyTrue(tc, m.arrived, sc.name);
+    verifyFalse(tc, m.collided, sc.name);
+    results(k) = struct('scenario', sc, 'env', env, 'p', pk, 'log', sim_log, 'm', m);
+end
+verifyEqual(tc, {arena_scenarios({'upper', 'center'}).name}, {'upper', 'center'});
+verifyError(tc, @() arena_scenarios({'nope'}), 'arena_scenarios:unknown');
+close(plot_scenario_grid(results));
+end
+
 function testEnclosedWaypointIsReportedAndSkipped(tc)
 p = tc.TestData.p;
 ring = {obstacle_rect([7 2.1], [2.2 0.2]), obstacle_rect([7 5.9], [2.2 0.2]), ...

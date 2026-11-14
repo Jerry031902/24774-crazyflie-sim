@@ -45,8 +45,9 @@ class Mission:
         return Environment(self.xlim, self.ylim, polys)
 
 
-# matlab-trajectory-sim/main.m, unchanged: a 10 x 8 m room with its corner at
-# the origin. Each leg has one obstacle in the way:
+# The full mission from matlab-trajectory-sim/main.m (commented out there; main.m
+# now flies one box), unchanged: a 10 x 8 m room with its corner at the
+# origin. Each leg has one obstacle in the way:
 #   start -> 1: box    1 -> 2: long wall    2 -> 3: pillar    3 -> goal: bench
 MATLAB_MAIN = Mission(
     name="matlab_main",
