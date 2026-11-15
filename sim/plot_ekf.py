@@ -1,6 +1,7 @@
 """Plot/score an EKF CSV; all errors are evaluated against held-out PhysX truth."""
 
 import argparse
+import json
 from pathlib import Path
 import numpy as np
 
@@ -63,25 +64,29 @@ def analyze(csv_path):
             "ekf_resets": int(np.max(d["ekf_reset_count"]))}
 
 
-def plot_ekf(csv_path):
+def plot_ekf(csv_path, gate_enabled=None):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     csv_path = Path(csv_path)
+    if gate_enabled is None:
+        metadata = csv_path.with_suffix(".json")
+        gate_enabled = json.loads(metadata.read_text()).get("flow_gate", {}).get("enabled", 0) if metadata.exists() else 0
+    estimate_label = "Gated EKF" if gate_enabled else "Stock EKF"
     d = load(csv_path)
     t = d["time_s"]
     fig, axes = plt.subplots(4, 3, figsize=(15, 13), sharex=True, constrained_layout=True)
     for j, axis in enumerate("xyz"):
         axes[0, j].plot(t, d[f"{axis}_m"], label="PhysX true", linewidth=1.2)
-        axes[0, j].plot(t, d[f"est_{axis}_m"], label="Stock EKF", linewidth=.8)
+        axes[0, j].plot(t, d[f"est_{axis}_m"], label=estimate_label, linewidth=.8)
         axes[0, j].plot(t, d[f"target_{axis}_m"], "k--", label="Target", alpha=.45, linewidth=.8)
         axes[0, j].set(title=f"{axis.upper()} position", ylabel="m")
         axes[1, j].plot(t, d[f"v{axis}_m_s"], label="PhysX true", linewidth=1.2)
-        axes[1, j].plot(t, d[f"est_v{axis}_m_s"], label="Stock EKF", linewidth=.8)
+        axes[1, j].plot(t, d[f"est_v{axis}_m_s"], label=estimate_label, linewidth=.8)
         axes[1, j].set(title=f"{axis.upper()} world velocity", ylabel="m/s")
     for j, angle in enumerate(("roll", "pitch_legacy", "yaw")):
         axes[2, j].plot(t, d[f"{angle}_deg"], label="PhysX true", linewidth=1.2)
-        axes[2, j].plot(t, d[f"est_{angle}_deg"], label="Stock EKF", linewidth=.8)
+        axes[2, j].plot(t, d[f"est_{angle}_deg"], label=estimate_label, linewidth=.8)
         axes[2, j].set(title=angle.replace("_", " "), ylabel="deg")
     packets = load(csv_path.with_suffix(".measurements.csv"))
     for j, (sensor, component, label) in enumerate((("flow", "x", "Flow X innovation"), ("flow", "y", "Flow Y innovation"), ("tof", "x", "ToF innovation"))):
@@ -99,7 +104,8 @@ def plot_ekf(csv_path):
         ax.legend(fontsize=7, loc="best")
     hover_label = (f"hover {hover_interval[0]:g}-{hover_interval[1]:g} s"
                    if hover_interval is not None else "no hover samples")
-    fig.suptitle(f"{csv_path.stem} | stock EKF | shaded: {hover_label} | dotted: move command")
+    title_label = "gated EKF" if gate_enabled else "stock EKF"
+    fig.suptitle(f"{csv_path.stem} | {title_label} | shaded: {hover_label} | dotted: move command")
     output = csv_path.with_suffix(".png")
     fig.savefig(output, dpi=140)
     plt.close(fig)
@@ -110,6 +116,5 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("csv", type=Path)
     args = parser.parse_args()
-    import json
     print(json.dumps(analyze(args.csv), indent=2))
     print(plot_ekf(args.csv))

@@ -154,7 +154,7 @@ class FlightLog:
         self.measurement_path = path.with_suffix(".measurements.csv")
         self.measurements = None
         self.measurement_writer = None
-        self.audit_paths = {name: path.with_suffix(f".{name}.csv") for name in ("flow_samples", "flow_updates")}
+        self.audit_paths = {name: path.with_suffix(f".{name}.csv") for name in ("flow_samples", "flow_updates", "flow_gate")}
         self.audit_files, self.audit_writers = {}, {}
 
     def write(self, state, target, command, phase, extra=None):

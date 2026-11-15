@@ -212,12 +212,60 @@ void kalmanCoreInit(kalmanCoreData_t *this, const kalmanCoreParams_t *params, co
   this->lastProcessNoiseUpdateMs = nowMs;
 }
 
+static float scalarUpdateInternal(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm,
+  float error, float stdMeasNoise, float *nis, kalmanScalarGateState_t *gate,
+  uint8_t enabled, float threshold, uint16_t maxReject);
+
+static void incrementGateCounter(uint32_t *value)
+{
+  if (*value < UINT32_MAX) { ++*value; }
+}
+
+static bool scalarGateAccept(kalmanScalarGateState_t *gate, float nis,
+  uint8_t enabled, float threshold, uint16_t maxReject)
+{
+  gate->streakBefore = gate->consecutive;
+  gate->runAtDecision = 0;
+  // Invalid runtime configuration fails open. The bindings setter rejects it;
+  // direct firmware parameter writes cannot bypass this validity check.
+  if (enabled == 1 && isfinite(threshold) && threshold > 0 && maxReject > 0 && nis > threshold) {
+    gate->runAtDecision = gate->consecutive + 1;
+    if (gate->runAtDecision < maxReject) {
+      gate->consecutive = gate->runAtDecision;
+      gate->decision = KC_FLOW_REJECTED;
+      incrementGateCounter(&gate->rejected);
+      return false;
+    }
+    gate->decision = KC_FLOW_FORCED;
+    incrementGateCounter(&gate->forced);
+  } else {
+    gate->decision = KC_FLOW_ACCEPTED;
+    incrementGateCounter(&gate->accepted);
+  }
+  gate->consecutive = 0;
+  return true;
+}
+
 void kalmanCoreScalarUpdate(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm, float error, float stdMeasNoise)
 {
   kalmanCoreScalarUpdateWithNis(this, Hm, error, stdMeasNoise, NULL);
 }
 
 float kalmanCoreScalarUpdateWithNis(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm, float error, float stdMeasNoise, float *nis)
+{
+  return scalarUpdateInternal(this, Hm, error, stdMeasNoise, nis, NULL, 0, 0, 0);
+}
+
+float kalmanCoreScalarUpdateWithGate(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm,
+  float error, float stdMeasNoise, float *nis, kalmanScalarGateState_t *gate,
+  uint8_t enabled, float threshold, uint16_t maxReject)
+{
+  return scalarUpdateInternal(this, Hm, error, stdMeasNoise, nis, gate, enabled, threshold, maxReject);
+}
+
+static float scalarUpdateInternal(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm,
+  float error, float stdMeasNoise, float *nis, kalmanScalarGateState_t *gate,
+  uint8_t enabled, float threshold, uint16_t maxReject)
 {
   // The Kalman gain as a column vector
   NO_DMA_CCM_SAFE_ZERO_INIT static float K[KC_STATE_DIM];
@@ -256,6 +304,10 @@ float kalmanCoreScalarUpdateWithNis(kalmanCoreData_t* this, arm_matrix_instance_
   // Observation only: use the exact innovation variance used by this update.
   if (nis != NULL) {
     *nis = (error * error) / HPHR;
+  }
+  if (gate != NULL && !scalarGateAccept(gate, nis != NULL ? *nis : (error * error) / HPHR,
+                                      enabled, threshold, maxReject)) {
+    return HPHR;
   }
 
   // ====== MEASUREMENT UPDATE ======

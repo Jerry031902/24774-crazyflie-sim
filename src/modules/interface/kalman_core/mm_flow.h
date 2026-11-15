@@ -43,3 +43,14 @@ float kalmanCoreGetFlowInnovationVarianceX(void);
 float kalmanCoreGetFlowInnovationVarianceY(void);
 float kalmanCoreGetFlowPredictionX(void);
 float kalmanCoreGetFlowPredictionY(void);
+
+// Runtime parameter defaults. MaxReject is the high-NIS run length at which
+// the current sample is forced: N-1 skipped, Nth accepted, then streak = 0.
+#define FLOW_GATE_DEFAULT_MAX_REJECT 10
+bool kalmanCoreSetFlowGateConfig(uint8_t enabled, float threshold, uint16_t maxReject);
+uint8_t kalmanCoreGetFlowGateEnabled(void);
+float kalmanCoreGetFlowGateThreshold(void);
+uint16_t kalmanCoreGetFlowGateMaxReject(void);
+uint16_t kalmanCoreGetFlowGateDefaultMaxReject(void);
+kalmanScalarGateState_t kalmanCoreGetFlowGateX(const kalmanCoreData_t *core);
+kalmanScalarGateState_t kalmanCoreGetFlowGateY(const kalmanCoreData_t *core);

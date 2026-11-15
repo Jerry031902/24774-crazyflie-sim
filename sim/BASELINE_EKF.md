@@ -3,7 +3,8 @@
 Verified against firmware HEAD `774e72256714d26f8383455ab9f3afe293b37af7` and the
 existing Python 3.11 `cffirmware` build. Firmware source and `cf2_defconfig` are
 unchanged. Hardware selection: Crazyflie 2.1 board, 47-17 propellers, Flow deck v2
-(VL53L1X), confirmed by the owner. No custom NIS gate is present in this baseline.
+(VL53L1X), confirmed by the owner. This baseline uses stock updates (`flow-gate 0`);
+the optional Step 3 gate below is disabled by default.
 
 ## 1. Stock order and rates
 
@@ -233,9 +234,9 @@ output are retained in `build/ekf_baseline/`.
 
 The historical results above predate the measured 33 g stock reference in
 `build/step0_stock_33g_seed7/ekf`. Preserve that reference when evaluating changes.
-Flow updates now record dimensionless `nis_x` and `nis_y` in the measurement CSV;
-ToF rows contain NaN in those columns. No measurement gating, covariance tuning,
-or controller change is included.
+Flow updates record dimensionless `nis_x` and `nis_y` in the measurement CSV;
+ToF rows contain NaN in those columns. Step 1 introduced only diagnostics.
+The optional Step 3 gate below remains disabled by default.
 
 `kalmanCoreScalarUpdateWithNis` records `error * error / HPHR` using the exact
 innovation variance of the C scalar update. The original scalar-update entry
@@ -357,8 +358,10 @@ smoothstep on every leg, with zero velocity and acceleration at endpoints:
 52–62 s is a separate recovery phase. Peak reference speed is 0.46875 m/s.
 For level flight at 1 m, ideal counts are `4.8832213*v/z`, peaking at about
 2.289 counts. Actual ideal flow also contains body rotation and tracking error;
-it must be read from the sensor audit. X and Y follow the clear central axes of
-the existing arena. No scene, navigation, or safety changes are made.
+it must be read from the sensor audit. The original Step 2 runs used the arena's
+central axes. Drift can still reach a pillar or wall, so those fault flights
+are historical, potentially contact-confounded results. Step 3 introduces
+`--scene flow-empty`; it is required for all new fault flights.
 
 Use `--flow-fault-offset 6 --flow-fault-duration 4` for the campaign window
 26–30 s, across the sustained middle portion of the +1 to -1 m leg. These are
@@ -373,17 +376,17 @@ Commands inside `cf_sim_dev` (use a fresh output directory each experiment):
   --output-dir build/step2_flow_faults_seed7/compatibility
 # Compare all eight existing CSVs byte-for-byte with Step 1 before continuing.
 /isaac-sim/python.sh sim/tests/smoke_firmware_ekf.py --seed 7 \
-  --trajectory flow-shuttle-x --flow-audit \
-  --output-dir build/step2_flow_faults_seed7/shuttle_x_reference
+  --trajectory flow-shuttle-x --scene flow-empty --flow-audit \
+  --output-dir build/new_flow_campaign/shuttle_x_reference
 /isaac-sim/python.sh sim/analyze_flow_faults.py detectability \
-  build/step2_flow_faults_seed7/shuttle_x_reference/flow-shuttle-x_ekf_closed_loop_noise_on.csv \
-  --output-dir build/step2_flow_faults_seed7/detectability
+  build/new_flow_campaign/shuttle_x_reference/flow-shuttle-x_ekf_closed_loop_noise_on.csv \
+  --output-dir build/new_flow_campaign/detectability
 # Review the detectability table before any fault flights.
 /isaac-sim/python.sh sim/tests/smoke_firmware_ekf.py --seed 7 \
-  --mode ekf_closed_loop --noise on --trajectory flow-shuttle-x \
+  --mode ekf_closed_loop --noise on --trajectory flow-shuttle-x --scene flow-empty \
   --flow-fault spike --flow-spike-amplitudes 5 10 20 50 \
   --flow-fault-offset 6 --flow-fault-duration 4 \
-  --output-dir build/step2_flow_faults_seed7/spikes
+  --output-dir build/new_flow_campaign/spikes
 # Repeat separately for --flow-fault zero, dropout, scale, with identical
 # trajectory, mode, noise, seed, offset, duration and separate output directories.
 ```
@@ -422,3 +425,124 @@ audit joins, invalid-ToF RNG scheduling, unchanged default CSVs, C HPHR, and bot
 the Step 0 failing-test baseline; report only changes. None of this proves a
 real floor's texture response, fault frequency, a universal threshold, hardware
 performance, or that a future gate can detect scale/zero or recover dropout.
+
+## Step 3: optional per-axis C flow gate
+
+`--scene flow-empty` creates an experiment-local USD from the arena, removes
+all walls/pillars, and verifies that the only static collider is a 200 m square
+floor with surface Z=0. The tracked scene is untouched. The flight runner stops
+outside a 20 m position norm, well inside the floor edge. PhysX contact reports
+are saved in `*.contacts.csv`, including collider paths and physics-step end
+time. Ground impacts remain possible and must be reported; contact-contaminated
+recovery is not scored as a successful recovery. Empty-scene stock references
+must be recorded before evaluating the gate. Old arena fault flights are not
+rerun; `tests/replay_flow_reference.py` instead replays their recorded float32
+truth through fresh sensors, C estimator, PID and actuator conversion. This
+checks controller/estimator compatibility, not independent physics or contacts.
+
+### Gate behavior and configuration
+
+The gate operates inside the same scalar-update implementation that computes
+HPHR, before modifying S, P or `isUpdated`. It sees only NIS and parameters.
+There are no fault labels, ground truth, phase or dropout information in C.
+X and Y decide separately. A rejected X update does not reduce the covariance
+seen by Y. Y retains the stock cached velocity/height prediction; it uses the
+actual covariance after X's decision. ToF and all other updates are unchanged.
+
+| Python CLI | Firmware parameter | Default / meaning |
+|---|---|---|
+| `--flow-gate` | `flowGate.enable` | 0 stock; 1 gated |
+| `--flow-gate-threshold` | `flowGate.threshold` | 9.0, dimensionless |
+| `--flow-gate-max-reject` | `flowGate.maxReject` | 10, resolved from C |
+| `--flow-gate-log` | n/a | Opt-in separate gate CSV with gate off; automatic with gate on |
+
+Only `NIS > threshold` is rejected; equality is accepted. The fallback accepts
+the Nth consecutive above-threshold candidate using the original R, then clears
+that axis' streak. Thus at most N-1 consecutive updates are actually skipped;
+N=1 forces every above-threshold update. A below-threshold acceptance also
+clears the streak. Parameter changes clear streaks on the next flow call, but
+retain totals. Core initialization clears per-core counters. Configuration is
+process-global, like firmware parameters; use one active vehicle/configuration.
+The Python setter rejects invalid values. Direct firmware parameter writes
+with invalid enable/threshold/limit fail open to stock acceptance.
+
+Inflating R on the forced update would be preferable for limiting a large
+outlier's correction, but needs its own inflation factor and recovery study.
+This step implements only the requested simple full-weight acceptance. A bound
+on consecutive rejections prevents rejection lockout; it does not guarantee
+flight recovery or protect against repeated bad forced updates.
+
+The initial limit 10 is based on the seed-7 empty-scene stock data with the
+26–30 s fault window: after the window, each spike amplitude (5/10/20/50),
+dropout and scale 0.5 had a maximum above-9 run of 1 sample per axis. Zero had
+101 consecutive high X samples starting at 30 s (first below at 31.01 s), and
+a maximum of 4 high Y samples. None of these seven runs had contacts. Ten is
+longer than those isolated/short tails, but permits at most nine skipped updates
+(100 ms between accepted updates at uninterrupted 100 Hz delivery), rather than
+waiting through the 1.01 s zero-fault tail. Dropout is not bounded by this rule.
+This is an initial
+engineering choice, not an optimized or universal limit. Stock tails do not
+predict the trajectories or NIS after gating changes the filter state.
+
+### Logging and tests
+
+`*.flow_gate.csv` has one row per **attempted scalar update**, with sample ID,
+sample/delivery/processing times, axis, actual C NIS/HPHR, decision, streak before
+the decision, candidate run length, remaining consecutive-reject count, three
+totals, reset epoch, and actual C configuration. `accepted`, `rejected`, and
+`forced` totals are disjoint; forced is an applied update, not a rejection.
+Counters saturate at UINT32_MAX. A new core/reset starts a new counter epoch.
+Fault type/active/changed labels are copied after C decides, for offline joins.
+Dropout produces sensor-audit rows but no attempted scalar update and no gate
+rejection. An all-rejected flow packet has measurement `used_by_core=False`;
+the per-axis CSV provides the exact decision when only one axis is rejected.
+Default gate-off output retains every original CSV schema and byte sequence.
+
+Firmware LOG variables are `kalman_pred.nisX/Y` and `flowGate.decX/Y`
+(0 accepted, 1 rejected, 2 forced), `seqX/Y` (streak after decision), `runX/Y`
+(above-threshold candidate run), `accX/Y`, `rejX/Y`, `forceX/Y` (totals).
+They describe the most recent flow call and are held until the next one,
+including across a core reset. The Python getter reads each core's own state.
+On-drone LOG sampling can miss intermediate 100 Hz updates; totals help detect
+that, but do not reconstruct missed samples. No embedded build or drone logging
+is verified here: the native build disables LOG/PARAM registration, and the
+machine lacks the STM32 toolchain.
+
+`tests/test_flow_gate.py` covers an independent pre-change stock-binary golden
+fixture, rejection without state/covariance mutation, independent axes, strict
+threshold equality, forced acceptance, streak resets, runtime switching,
+counter isolation/reset/saturation, parameter bounds, labels, and dropout.
+`tests/test_flow_gate_analysis.py` checks continuous recovery and censoring.
+Rebuild both SWIG bindings and forced `build_ext` before running these tests.
+Full original flights and saved-reference replay supplement unit tests. The
+Step 0 teammate failure baseline remains authoritative; report only changes
+and explicitly identify suites not rerun.
+
+### Step 4 plan only, not executed in Step 3
+
+Use matched stock/gated pairs in the empty scene, thresholds 6.63 and 9.0, each
+fault type and spike amplitudes 5/10/20/50, with at least five recorded fault
+seeds per case. Pair the sensor seed, fault seed, trajectory, window and scene
+across compared modes. Fault seeds alone do not vary deterministic zero/dropout/
+scale operators: use five paired sensor-noise seeds as well, and disclose that
+the fault pattern is identical unless window randomization is separately added.
+Never count five identical deterministic reruns as independent fault patterns.
+Y flights still require the user's instruction.
+
+Score XY estimate error and true XY target-tracking error with RMS, p95 and
+maximum during [26,30), during the first 5 s after the window, and over the
+remaining run. Record contact time, resets, actual duration and truncation.
+Report recovery separately for estimate/tracking and jointly: the first time
+after the fault window when the error stays within matched clean error plus
+0.05 m (estimate) and 0.10 m (tracking) for at least 1 continuous second.
+The clean reference must use the same gate mode/parameters, sensor seed, noise,
+trajectory and scene; the analysis rejects mismatched references.
+Report a missing recovery as censored at first contact/run end, not zero.
+This relative definition is not proof of small absolute error; always retain
+absolute metrics. `analyze_flow_gate.py metrics` writes these quantities using
+the recorded window and sample times; `tails` measures stock above-threshold
+runs before selecting the fallback limit. Rejection rates use attempted scalar
+updates as denominator, separate forced accepts, and join fault labels by ID.
+False-rejection rate is scored in independent faults-off runs, not in potentially
+contaminated recovery samples of a fault run. Preserve per-seed results and
+paired differences, and list every metric worsened by gating.
