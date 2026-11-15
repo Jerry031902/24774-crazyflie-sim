@@ -99,10 +99,10 @@ verifyTrue(tc, all(isnan(read_rangers([3; 4], 0, env, p))));
 end
 
 function testHysteresisTurnsOnAtThresholdAndOffPastIt(tc)
-% d_side = 0.25 (strict <), hysteresis 0.05; an unknown (NaN) reading changes nothing.
+% d_side = 0.25 (strict <), hysteresis 0.15; an unknown (NaN) reading changes nothing.
 p = tc.TestData.p;
 nav = navigator_init([0 0], [5 0]);
-seq = [0.26 0; 0.25 0; 0.24 1; 0.29 1; 0.31 0; NaN 0; 0.24 1; NaN 1];
+seq = [0.26 0; 0.25 0; 0.24 1; 0.39 1; 0.41 0; NaN 0; 0.24 1; NaN 1];
 for k = 1:size(seq, 1)
     [~, ~, nav] = navigator_step(nav, [0; 0; 0; 0], 0, [Inf; seq(k,1); Inf; Inf], 0, p);
     verifyEqual(tc, nav.near.side(2), logical(seq(k,2)));

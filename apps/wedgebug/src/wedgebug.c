@@ -709,7 +709,12 @@ static command_t follow(wedgebug_t* nav, const float* pos, float psi, float spee
 
   // Exit: closer to the target than the hit point, and (TangentBug's rule)
   // the free space seen toward the target reaches closer to it than any
-  // point of the wall followed so far.
+  // point of the wall followed so far. Only readings within dOpen are points
+  // of the wall being followed; a longer one is something further off, and
+  // counting it can make the rule impossible to meet. Finally, GO_TO_GOAL
+  // would switch straight back to wall-following if a side ranger read under
+  // dSide once facing the target: while something that close lies beside the
+  // way to the target, keep following.
   const float* tg = target(nav);
   const float c = cosf(psi), s = sinf(psi);
   float relX, relY;
@@ -717,7 +722,7 @@ static command_t follow(wedgebug_t* nav, const float* pos, float psi, float spee
   const int wallDirs[2] = {k, toward(k, nav->hand)};  // front and wall-side readings are wall points
   for (int i = 0; i < 2; i++) {
     const float rd = r[wallDirs[i] - 1];
-    if (isfinite(rd)) {
+    if (isfinite(rd) && nav->near[WEDGEBUG_NEAR_OPEN][wallDirs[i] - 1]) {
       const float bx = DIRS[wallDirs[i] - 1][0] * rd, by = DIRS[wallDirs[i] - 1][1] * rd;
       const float wallPt[2] = {pos[0] + c * bx - s * by, pos[1] + s * bx + c * by};
       nav->dFollowed = fminf(nav->dFollowed, distTo(tg, wallPt));
@@ -725,7 +730,15 @@ static command_t follow(wedgebug_t* nav, const float* pos, float psi, float spee
   }
   const float relDist = norm2(relX, relY);
   const float reach = fmaxf(relDist - freeToward(p, relX, relY, r), 0.0f);
-  if (nav->following && relDist < nav->hitDist - p->leaveMargin && reach < nav->dFollowed - p->leaveMargin) {
+  bool beside = false;
+  for (int d = 0; d < 4; d++) {
+    const float a = acosf(clampf((DIRS[d][0] * relX + DIRS[d][1] * relY) / relDist, -1.0f, 1.0f));
+    if (nav->near[WEDGEBUG_NEAR_SIDE][d] && a > PI_F / 4.0f && a < 3.0f * PI_F / 4.0f) {
+      beside = true;  // ranger axis to the target direction between 45 and 135 deg
+    }
+  }
+  if (nav->following && relDist < nav->hitDist - p->leaveMargin && reach < nav->dFollowed - p->leaveMargin &&
+      !beside) {
     logEvent(nav, t, WEDGEBUG_EVENT_LEAVE, pos);
     endEpisode(nav);
     nav->mode = WEDGEBUG_GO_TO_GOAL;
@@ -830,7 +843,7 @@ void wedgebugDefaultParams(wedgebugParams_t* p) {
   p->leaveMargin = 0.10f;
   p->loopTol = 0.15f;
   p->loopMinTravel = 1.0f;
-  p->hysteresis = 0.05f;
+  p->hysteresis = 0.15f;
   p->wallFitTravel = 0.10f;
   p->wallFitMax = DEG_TO_RAD(30.0f);
   p->wallFitGain = 0.5f;

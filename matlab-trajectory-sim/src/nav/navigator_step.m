@@ -490,18 +490,26 @@ end
 % the free space seen toward the target reaches closer to it than any
 % point of the wall followed so far. The second part keeps the drone from
 % leaving inside a pocket whose back wall stands between it and the target.
+% Only readings within d_open are points of the wall being followed; a
+% longer one is something further off (another obstacle, the room), and
+% counting it can make the rule impossible to meet, so the drone circles.
+% Finally, GO_TO_GOAL would switch straight back to wall-following if a
+% side ranger read under d_side once facing the target: while something
+% that close lies beside the way to the target, keep following.
 target = nav.targets(nav.wp, :)';
 rel = rot2d(psi)' * (target - pos);
 D = dirs();
 for s = unique([k, toward(k, nav.hand)])     % front and wall-side readings are wall points
-    if isfinite(ranges(s))
+    if isfinite(ranges(s)) && nav.near.open(s)
         wall_pt = pos + rot2d(psi) * D(s,:)' * ranges(s);
         nav.d_followed = min(nav.d_followed, norm(target - wall_pt));
     end
 end
 reach = max(norm(rel) - free_toward(rel, ranges, p), 0);
+ang = acos(min(max(D * (rel / norm(rel)), -1), 1));   % each ranger's axis to the target direction
+beside = nav.near.side(:) & ang > pi/4 & ang < 3*pi/4;
 if nav.following && norm(rel) < nav.hit_dist - p.nav.leave_margin && ...
-        reach < nav.d_followed - p.nav.leave_margin
+        reach < nav.d_followed - p.nav.leave_margin && ~any(beside)
     nav = log_event(nav, t, 'leave', pos);
     nav = end_episode(nav);
     nav.mode = 'GO_TO_GOAL';

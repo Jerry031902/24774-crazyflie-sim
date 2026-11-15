@@ -98,8 +98,8 @@ class ReadingRuleTests(unittest.TestCase):
 
     def test_hysteresis_turns_on_at_threshold_and_off_past_it(self):
         nav = self.navigator()
-        # d_side = 0.25 (strict <), hysteresis 0.05; nan changes nothing.
-        for left, near in ((0.26, False), (0.25, False), (0.24, True), (0.29, True), (0.31, False),
+        # d_side = 0.25 (strict <), hysteresis 0.15; nan changes nothing.
+        for left, near in ((0.26, False), (0.25, False), (0.24, True), (0.39, True), (0.41, False),
                            (math.nan, False), (0.24, True), (math.nan, True)):
             nav.step(np.zeros(4), 0.0, [math.inf, left, math.inf, math.inf], 0.0)
             self.assertEqual(bool(nav.near["side"][1]), near, f"left = {left}")
@@ -153,7 +153,8 @@ class ReadingRuleTests(unittest.TestCase):
 
 class NavigationTests(unittest.TestCase):
     def test_matlab_main_mission_matches_matlab_results(self):
-        # Default (bench-measured, 2 mm) ranger noise: 75.4 s, closest gap 0.13 m.
+        # Default (bench-measured, 2 mm) ranger noise: 74.4 s, closest gap 0.13 m
+        # (without noise 72.82 s / 0.126 m, exactly as MATLAB).
         for backend in BACKENDS:
             with self.subTest(backend=backend):
                 env = MATLAB_MAIN.environment()
@@ -161,7 +162,7 @@ class NavigationTests(unittest.TestCase):
                 self.assertTrue(m["arrived"])
                 self.assertFalse(m["collided"])
                 self.assertEqual(m["targets_reached"], 4)
-                self.assertAlmostEqual(m["t_finish"], 75.4, delta=0.1)
+                self.assertAlmostEqual(m["t_finish"], 74.4, delta=0.1)
                 self.assertAlmostEqual(m["min_clearance"], 0.126, delta=0.01)
 
     def test_open_room_flies_straight_line(self):

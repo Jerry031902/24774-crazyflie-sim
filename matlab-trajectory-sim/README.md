@@ -105,7 +105,7 @@ It switches to AVOID if either of these happens:
      - Wall reading jumps long: fly `corner_margin` further, then turn back toward the wall.
      - Wall closer than `d_close`: step away.
 
-     It leaves the wall once it is closer to the target than its hit point, and the free space it can see toward the target reaches closer than any point of the wall followed so far. That second condition is TangentBug's rule, which WedgeBug builds on. It stops the drone leaving inside a pocket whose back wall stands between it and the target.
+     It leaves the wall once it is closer to the target than its hit point, and the free space it can see toward the target reaches closer than any point of the wall followed so far. That second condition is TangentBug's rule, which WedgeBug builds on. It stops the drone leaving inside a pocket whose back wall stands between it and the target. Only readings within `d_open` count as points of the wall followed: a longer reading is another obstacle or the room, and counting it (an obstacle next to the target, say) could make the rule impossible to meet, so the drone would circle. Nor does it leave while a side ranger reads under `d_side` beside the way to the target (45-135° off it), since GO_TO_GOAL would switch straight back to wall-following.
 
 **Episodes and unreachable targets**
 
@@ -127,7 +127,7 @@ the mode is DONE.
 
 **Hysteresis and unknown readings**
 
-Every rule above that compares a reading with a distance (`d_side`, `d_sweep`, `d_detect`, `d_wall`, `d_close`, `d_open`, and the obstacle to head for after squaring up) switches on at its threshold and back only once the reading is `p.nav.hysteresis` (0.05 m) past it. A reading wavering at a threshold therefore can't flip a decision back and forth, and no safety distance is reduced.
+Every rule above that compares a reading with a distance (`d_side`, `d_sweep`, `d_detect`, `d_wall`, `d_close`, `d_open`, and the obstacle to head for after squaring up) switches on at its threshold and back only once the reading is `p.nav.hysteresis` (0.15 m) past it. A reading wavering at a threshold therefore can't flip a decision back and forth, and no safety distance is reduced. 0.15 m rather than 0.05 m halves the safety brakes and cuts give-ups under 10 cm ranger noise and raises the worst clearance under 3 cm noise (0.016 to 0.041 m over 15 seeds), with no change at the bench-measured 2 mm.
 
 A reading of `NaN` is unknown (an invalid reading). It changes no rule's state, never counts as free space (not an edge in a sweep, not a clear way, not a reason to leave a wall) or as an obstacle, and the drone does not fly toward it until that ranger reads again. If every reading straight ahead in a sweep is unknown, the way counts as blocked.
 
@@ -167,9 +167,9 @@ The deck's fifth (up) sensor is not modelled in 2-D. The room walls are visible 
 `noise_study(start, waypoints, goal, obstacles, p)` flies one mission 10 times at each noise level, 0, 1, 2, 5, 10 and 20 cm std dev, with a different random seed for each run. It prints a summary and plots outcome, closest approach, time to goal and sweeps against the noise level. The last section of `main.m` runs it on the mission defined there.
 
 With safety supervision disabled, the hardware ranger timing and sensor
-positions, 0.05 m hysteresis, readings paired with their heading, the wall
-fit and the passing-speed limit, the full mission takes 75.4 s with a closest gap of
-0.13 m with the default 2 mm ranger noise, and 73.3 s / 0.13 m without noise
+positions, 0.15 m hysteresis, readings paired with their heading, the wall
+fit, the passing-speed limit and the wall-leaving rule, the full mission takes 74.4 s
+with a closest gap of 0.13 m with the default 2 mm ranger noise, and 72.82 s / 0.126 m without noise
 (2-D Python port; it matches MATLAB exactly without noise, while with noise
 the two draw different random numbers).
 The table below is historical: it was measured with the original navigator

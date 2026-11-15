@@ -73,7 +73,8 @@ p.nav.wp_tol        = 0.10;  % a waypoint counts as reached within this distance
 p.nav.leave_margin  = 0.10;  % leave the wall only this much closer to the target than the hit point [m]
 p.nav.loop_tol      = 0.15;  % back within this of where wall-following began...  [m]
 p.nav.loop_min_travel = 1.0; % ...after following at least this far = full loop, unreachable [m]
-p.nav.hysteresis      = 0.05; % a reading must pass a threshold by this much to undo its decision [m]
+p.nav.hysteresis      = 0.15; % a reading must pass a threshold by this much to undo its decision [m]
+                              % (0.15 rather than 0.05: fewer brakes and give-ups under 3-10 cm noise, no change at 2 mm)
 p.nav.wall_fit_travel = 0.10; % wall-following: travel between two wall readings used to fit the wall [m]
 p.nav.wall_fit_max    = deg2rad(30); % ...ignore fits further than this from the held yaw (a corner) [rad]
 p.nav.wall_fit_gain   = 0.5;  % ...and turn this fraction of the way to parallel per fit [-]

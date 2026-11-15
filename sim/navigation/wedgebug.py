@@ -500,17 +500,25 @@ class WedgeBugNavigator:
 
         # Exit: closer to the target than the hit point, and (TangentBug's rule)
         # the free space seen toward the target reaches closer to it than any
-        # point of the wall followed so far.
+        # point of the wall followed so far. Only readings within d_open are
+        # points of the wall being followed; a longer one is something further
+        # off, and counting it can make the rule impossible to meet. Finally,
+        # GO_TO_GOAL would switch straight back to wall-following if a side
+        # ranger read under d_side once facing the target: while something that
+        # close lies beside the way to the target, keep following.
         target = self.target()
         R = rot2d(psi)
         rel = R.T @ (target - pos)
         for s in {k, _toward(k, self.hand)}:          # front and wall-side readings are wall points
-            if math.isfinite(ranges[s - 1]):
+            if math.isfinite(ranges[s - 1]) and self.near["open"][s - 1]:
                 wall_pt = pos + R @ DIRS[s - 1] * ranges[s - 1]
                 self.d_followed = min(self.d_followed, float(np.linalg.norm(target - wall_pt)))
-        reach = max(float(np.linalg.norm(rel)) - self._free_toward(rel, ranges), 0.0)
-        if (self.following and np.linalg.norm(rel) < self.hit_dist - nav.leave_margin
-                and reach < self.d_followed - nav.leave_margin):
+        dist = float(np.linalg.norm(rel))
+        reach = max(dist - self._free_toward(rel, ranges), 0.0)
+        ang = np.arccos(np.clip(DIRS @ (rel / dist), -1.0, 1.0))   # each ranger's axis to the target direction
+        beside = self.near["side"] & (ang > math.pi / 4) & (ang < 3 * math.pi / 4)
+        if (self.following and dist < self.hit_dist - nav.leave_margin
+                and reach < self.d_followed - nav.leave_margin and not beside.any()):
             self._log_event(t, "leave", pos)
             self._end_episode()
             self.mode = "GO_TO_GOAL"
