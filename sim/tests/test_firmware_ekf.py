@@ -165,6 +165,8 @@ class EKFTests(unittest.TestCase):
         py_after_x = 1 - (.5*h)**2 / sx
         sy = h*h*py_after_x + variance
         self.assertAlmostEqual(cf.kalmanCoreGetFlowNisX(), .4**2 / sx, places=6)
+        self.assertAlmostEqual(cf.kalmanCoreGetFlowInnovationVarianceX(), sx, places=6)
+        self.assertAlmostEqual(cf.kalmanCoreGetFlowInnovationVarianceY(), sy, places=6)
         # Stock Y prediction retains the velocity cached before X; do not recompute it.
         self.assertAlmostEqual(cf.kalmanCoreGetFlowNisY(), .6**2 / sy, places=6)
         self.assertGreater(abs(cf.kalmanCoreGetFlowNisY() - .6**2 / sx), .1)

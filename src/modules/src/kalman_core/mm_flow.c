@@ -38,9 +38,15 @@ static float measuredNX;
 static float measuredNY;
 static float flowNisX = NAN;
 static float flowNisY = NAN;
+static float flowInnovationVarianceX = NAN;
+static float flowInnovationVarianceY = NAN;
 
 float kalmanCoreGetFlowNisX(void) { return flowNisX; }
 float kalmanCoreGetFlowNisY(void) { return flowNisY; }
+float kalmanCoreGetFlowInnovationVarianceX(void) { return flowInnovationVarianceX; }
+float kalmanCoreGetFlowInnovationVarianceY(void) { return flowInnovationVarianceY; }
+float kalmanCoreGetFlowPredictionX(void) { return predictedNX; }
+float kalmanCoreGetFlowPredictionY(void) { return predictedNY; }
 
 static Axis3f flowdeckPos = { .axis = { FLOWDECK_POS_X, FLOWDECK_POS_Y, FLOWDECK_POS_Z } }; // In body coordinate system
 
@@ -94,7 +100,7 @@ void kalmanCoreUpdateWithFlow(kalmanCoreData_t* this, const flowMeasurement_t *f
   hx[KC_STATE_PX] = (Npix * flow->dt / thetapix) * (this->R[2][2] / z_g);
 
   //First update
-  kalmanCoreScalarUpdateWithNis(this, &Hx, (measuredNX-predictedNX), flow->stdDevX*FLOW_RESOLUTION, &flowNisX);
+  flowInnovationVarianceX = kalmanCoreScalarUpdateWithNis(this, &Hx, (measuredNX-predictedNX), flow->stdDevX*FLOW_RESOLUTION, &flowNisX);
 
   // Y velocity prediction and update
   float hy[KC_STATE_DIM] = {0};
@@ -107,7 +113,7 @@ void kalmanCoreUpdateWithFlow(kalmanCoreData_t* this, const flowMeasurement_t *f
   hy[KC_STATE_PY] = (Npix * flow->dt / thetapix) * (this->R[2][2] / z_g);
 
   // Second update
-  kalmanCoreScalarUpdateWithNis(this, &Hy, (measuredNY-predictedNY), flow->stdDevY*FLOW_RESOLUTION, &flowNisY);
+  flowInnovationVarianceY = kalmanCoreScalarUpdateWithNis(this, &Hy, (measuredNY-predictedNY), flow->stdDevY*FLOW_RESOLUTION, &flowNisY);
 }
 
 /**

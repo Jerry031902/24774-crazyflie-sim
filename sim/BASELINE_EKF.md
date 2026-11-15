@@ -270,3 +270,155 @@ comes from the flight CSV at delivery time; the final `complete` sample is
 assigned to move, so phase counts total all 3000 flow updates. No startup or
 tail samples are discarded. Empirical single-seed percentiles do not establish
 a universal chi-square calibration or independent-sample confidence bound.
+
+## Step 2: synthetic flow faults and matched shuttles
+
+The fault model is default-off, simulation-only, and never makes an EKF update
+decision. The stock C correction is unchanged. Read-only C getters additionally
+expose each scalar update's exact `HPHR` (pixels squared) and cached prediction
+(pixels); the Y variance includes the preceding X correction. This avoids
+inferring variance by dividing a reconstructed innovation by a small NIS.
+These getters are exposed through the existing `mm_flow.h` SWIG include. Rebuild
+bindings with forced `build_ext` after this change. STM32 remains unverified.
+
+### Driver interpretation and limits
+
+`src/deck/drivers/src/flowdeck_v1v2.c` first requires both aligned counts to
+satisfy `abs(count) < 100`, updates its `lastTime`, then requires the **whole**
+motion byte to equal `0xB0`. Zero counts with `0xB0` are enqueued. A different
+motion byte is not enqueued. In particular, status dropout still updates the
+driver clock, whereas a count-limit failure does not. Recovery after a status
+dropout therefore normally has `dt=0.01 s`, not the duration of the dropout.
+The fixed default standard deviation is 2 counts, with adaptive standard
+deviation disabled. The default driver path does not reject by SQUAL.
+
+Neither this driver nor the publicly available PMW3901 register summary proves
+which values the device returns on a featureless floor. `zero` and `dropout`
+are separate hypotheses. The synthetic dropout byte `0x30` only represents
+`0xB0` with bit 7 cleared; it is not a claimed measured hardware response.
+See the [Bitcraze Flow tutorial](https://www.bitcraze.io/documentation/tutorials/getting-started-with-flow-deck/)
+and [PixArt PMW3901 datasheet](https://wiki.bitcraze.io/_media/projects:crazyflie2:expansionboards:pot0189-pmw3901mb-txqt-ds-r1.40-280119.pdf).
+
+### Parameters and ordering
+
+Both `run_sim.py` and `tests/smoke_firmware_ekf.py` accept:
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--trajectory` | `hover-move` | Also `flow-shuttle-x` / `flow-shuttle-y` |
+| `--flow-fault` | `off` | `spike`, `zero`, `dropout`, `scale` |
+| `--flow-fault-seed` | Same number as `--seed` | Separate RNG with domain `0x464C4F57` |
+| `--flow-fault-phase` | `move` | Clock-scheduled `takeoff`, `hover`, or `move` |
+| `--flow-fault-offset` | 0.2 s | Nonnegative time after phase start |
+| `--flow-fault-duration` | 1 s | Active window is `[start,end)`, at sample time |
+| `--flow-spike-amplitude` | 20 counts | Each axis gets an independent random sign |
+| `--flow-spike-probability` | 0.1 | Bernoulli per 10 ms read; both axes fire together |
+| `--flow-scale-factor` | 0.5 | Positive finite multiplier on ideal flow |
+| `--flow-audit` | off | Opt in to separate sensor-read and C-update CSVs |
+
+The smoke runner also accepts `--flow-spike-amplitudes 5 10 20 50`, creating
+four separate runs with the same seed and spike schedule. Values are in the
+driver's aligned counts, before the EKF's multiplication by 0.1; no additional
+axis swap or quantization is introduced.
+
+For ideal counts `c` and the ordinary noise draw `e`, the candidates are:
+
+- `off`: `c+e`.
+- `spike`: `clip(c+e ± A, -99, 99)` when triggered, otherwise `c+e`. This
+  synthetic clipping ensures both components pass the count limit; clipping
+  and actual deltas are recorded. It is not a PMW3901 saturation model.
+- `zero`: overwrite both components with exactly zero, motion `0xB0`.
+- `dropout`: keep `c+e`, but set synthetic motion `0x30`.
+- `scale`: `factor*c+e`; the noise and EKF R are not scaled. Large factors can
+  reach the ordinary count limit and cause driver rejection.
+
+The existing count limit and motion-byte checks run **after** these operations.
+Every case still draws ordinary sensor noise, including zero/dropout samples.
+Fault RNG draws never touch the sensor RNG. On identical truth sequences the
+noise samples remain identical for all faults and after reset. In closed loop,
+the trajectory can change; the recorded noise draws are compared separately.
+ToF also consumes its scheduled noise draw when no downward floor return is
+available; the invalid measurement remains unqueued. This fixes a pre-existing
+conditional draw that shifted later IMU/flow noise after fault-driven extreme
+attitudes. Every saved stock reference has valid ToF returns, so its draw order
+and bytes are unchanged. The old RNG sequence on an invalid-ToF trajectory is
+intentionally not preserved. Audit comparisons verify the matched noise draws.
+
+### Trajectories and reference runs
+
+Both shuttles hold altitude 1 m, yaw 0, and the other horizontal target at 0.
+They take off during 0–10 s and hover during 10–20 s. Position follows a quintic
+smoothstep on every leg, with zero velocity and acceleration at endpoints:
+
+| Time [s] | 20 | 24 | 32 | 40 | 48 | 52 | 62 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Selected axis target [m] | 0 | +1 | -1 | +1 | -1 | 0 | 0 |
+
+52–62 s is a separate recovery phase. Peak reference speed is 0.46875 m/s.
+For level flight at 1 m, ideal counts are `4.8832213*v/z`, peaking at about
+2.289 counts. Actual ideal flow also contains body rotation and tracking error;
+it must be read from the sensor audit. X and Y follow the clear central axes of
+the existing arena. No scene, navigation, or safety changes are made.
+
+Use `--flow-fault-offset 6 --flow-fault-duration 4` for the campaign window
+26–30 s, across the sustained middle portion of the +1 to -1 m leg. These are
+explicit campaign overrides, not changed defaults. A new trajectory requires
+its own faults-off reference. Run X first; Y flight runs require the user's
+later instruction. Y schedule unit tests do not constitute flight validation.
+
+Commands inside `cf_sim_dev` (use a fresh output directory each experiment):
+
+```bash
+/isaac-sim/python.sh sim/tests/smoke_firmware_ekf.py --seed 7 \
+  --output-dir build/step2_flow_faults_seed7/compatibility
+# Compare all eight existing CSVs byte-for-byte with Step 1 before continuing.
+/isaac-sim/python.sh sim/tests/smoke_firmware_ekf.py --seed 7 \
+  --trajectory flow-shuttle-x --flow-audit \
+  --output-dir build/step2_flow_faults_seed7/shuttle_x_reference
+/isaac-sim/python.sh sim/analyze_flow_faults.py detectability \
+  build/step2_flow_faults_seed7/shuttle_x_reference/flow-shuttle-x_ekf_closed_loop_noise_on.csv \
+  --output-dir build/step2_flow_faults_seed7/detectability
+# Review the detectability table before any fault flights.
+/isaac-sim/python.sh sim/tests/smoke_firmware_ekf.py --seed 7 \
+  --mode ekf_closed_loop --noise on --trajectory flow-shuttle-x \
+  --flow-fault spike --flow-spike-amplitudes 5 10 20 50 \
+  --flow-fault-offset 6 --flow-fault-duration 4 \
+  --output-dir build/step2_flow_faults_seed7/spikes
+# Repeat separately for --flow-fault zero, dropout, scale, with identical
+# trajectory, mode, noise, seed, offset, duration and separate output directories.
+```
+
+### Audit and interpretation
+
+Faults off preserves the original flight/measurement CSV schema and bytes;
+the default produces no extra audit CSVs. Explicit `--flow-audit` adds sidecars
+without changing those original CSVs. Faults on enables audit automatically
+and adds `flow_sample_id`, `fault_type`, `fault_window_active`, `fault_active`,
+`fault_changed_x/y` to **all** measurement rows, including clean intervals.
+ToF has `not_applicable` labels. `fault_active` means the operator fired;
+it is distinct from being inside the window or having nonzero effect.
+Labels are fixed at sample time and copied to CSV after the C update.
+
+`*.flow_samples.csv` records every flow read, including drops: ideal/noise/
+clean/final counts, actual fault deltas, motion byte, count/status checks,
+enqueue status, drop reason, read/driver dt, clipping, and scheduled delivery.
+`*.flow_updates.csv` records only actual C updates, joined by `flow_sample_id`,
+with exact C HPHR, prediction and NIS. Dropout has **no update or NIS** and
+must never be counted as gate rejection. A scheduled delivery is not proof of
+consumption; join against the update CSV, especially with nonzero delays.
+
+`analyze_flow_faults.py detectability` saves ideal counts versus time and a
+pre-fault table for both the default and campaign windows. It uses exact stock
+HPHR and prediction, includes the noise variance for spikes/scale, and omits
+that term for zero (noise is overwritten). Predictions condition on the stock
+reference, not on a fault-adapted filter. `summarize` reports actual stock-run
+errors and the fraction of NIS exceeding 9. This is a **hypothetical threshold
+exceedance**, never an implemented gate rejection rate. Clean reference rates
+are separate from inactive/recovery samples of fault runs.
+
+Tests cover RNG separation/reset, bounds, probability extremes, half-open
+windows, delayed labels, zero/scale arithmetic, dropout clock/update behavior,
+audit joins, invalid-ToF RNG scheduling, unchanged default CSVs, C HPHR, and both shuttle schedules. Keep
+the Step 0 failing-test baseline; report only changes. None of this proves a
+real floor's texture response, fault frequency, a universal threshold, hardware
+performance, or that a future gate can detect scale/zero or recover dropout.

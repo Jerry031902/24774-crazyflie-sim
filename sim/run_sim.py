@@ -181,7 +181,7 @@ def reset_runtime(sim, controller):
         _ranger.reset()
 
 
-def make_controller(mode, noise=False, seed=7, initial_xy_yaw=None):
+def make_controller(mode, noise=False, seed=7, initial_xy_yaw=None, flow_fault=None, flow_audit=False):
     """Select a controller without importing Isaac Sim into controller code."""
     if mode == "altitude_pid":
         return AltitudePIDController(
@@ -196,7 +196,8 @@ def make_controller(mode, noise=False, seed=7, initial_xy_yaw=None):
         from controllers.ekf_pid import EKFPIDController
         if PHYSICS_DT != 0.001 or GRAVITY_M_S2 != 9.81:
             raise ValueError("Stock EKF baseline requires 1 ms steps and gravity 9.81")
-        return EKFPIDController(mode, noise=noise, seed=seed, initial_xy_yaw=initial_xy_yaw)
+        return EKFPIDController(mode, noise=noise, seed=seed, initial_xy_yaw=initial_xy_yaw,
+                                flow_fault=flow_fault, flow_audit=flow_audit)
     if mode in ("free_fall", "hover_ff"):
         return ConstantThrustController(0.0 if mode == "free_fall" else MASS_KG * GRAVITY_M_S2)
     raise ValueError(f"Unknown mode: {mode}")
@@ -204,7 +205,7 @@ def make_controller(mode, noise=False, seed=7, initial_xy_yaw=None):
 
 def setup_simulation(mode, target_z_m=TARGET_Z_M, noise=False, seed=7, ranger=False, ranger_noise=False,
                      scene_path=ARENA_PATH, initial_position=INITIAL_POSITION, camera=None,
-                     ekf_initial_xy_yaw=None):
+                     ekf_initial_xy_yaw=None, flow_fault=None, flow_audit=False):
     """Open the scene, reference the drone, and start fixed-step physics.
 
     Missions pass their own scene, start position and camera (eye, target),
@@ -220,7 +221,8 @@ def setup_simulation(mode, target_z_m=TARGET_Z_M, noise=False, seed=7, ranger=Fa
     from pxr import Gf, PhysxSchema, Usd, UsdGeom, UsdPhysics
 
     _initial_position = tuple(map(float, initial_position))
-    controller = make_controller(mode, noise=noise, seed=seed, initial_xy_yaw=ekf_initial_xy_yaw)
+    controller = make_controller(mode, noise=noise, seed=seed, initial_xy_yaw=ekf_initial_xy_yaw,
+                                 flow_fault=flow_fault, flow_audit=flow_audit)
     if not math.isfinite(MASS_KG) or MASS_KG <= 0:
         raise ValueError("MASS_KG must be positive and finite")
     if len(INERTIA_KGM2) != 3 or any(not math.isfinite(i) or i <= 0 for i in INERTIA_KGM2):
@@ -344,7 +346,19 @@ def main():
                         help="Assumed PID braking response delay [s]; validate in PhysX")
     parser.add_argument("--safety-backup-brake-accel", type=float, default=.5)
     parser.add_argument("--safety-backup-brake-response", type=float, default=.25)
+    from flow_faults import add_flow_arguments, config_from_args
+    add_flow_arguments(parser)
     args = parser.parse_args()
+    if args.trajectory != "hover-move":
+        args.demo = True
+    if (args.flow_fault != "off" or args.flow_audit or args.trajectory != "hover-move") and (
+        args.mode not in EKF_MODES or args.mission or not args.demo
+    ):
+        parser.error("Flow faults/audit/shuttles require an EKF demo, without --mission")
+    try:
+        flow_fault = config_from_args(args, args.hover_seconds)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.safety == "on" and not args.mission:
         parser.error("--safety on currently requires --mission")
     for value in (args.safety_brake_accel, args.safety_backup_brake_accel):
@@ -396,7 +410,7 @@ def main():
         ranger_kwargs = dict(ranger=args.ranger == "on", ranger_noise=args.ranger_noise == "on")
         if mission is None:
             sim, controller = setup_simulation(args.mode, args.target_z, noise=args.noise == "on", seed=args.seed,
-                                               **ranger_kwargs)
+                                               flow_fault=flow_fault, flow_audit=args.flow_audit, **ranger_kwargs)
         else:
             (x0, x1), (y0, y1) = mission.xlim, mission.ylim
             overview = (((x0 + x1) / 2, y0 - 0.6 * (y1 - y0), 0.9 * max(x1 - x0, y1 - y0)),
@@ -427,11 +441,15 @@ def main():
             if safety_config is not None:
                 print("Safety: ON; horizontal-only; configured braking bounds await PhysX calibration", flush=True)
         elif args.demo or args.csv:
-            from flight_demo import FlightLog, HoverMoveDemo, TimedHoverMoveDemo
-            demo_type = TimedHoverMoveDemo if args.mode in EKF_MODES else HoverMoveDemo
-            demo = demo_type(args.target_z, hover_hold_s=args.hover_seconds) if args.demo else None
+            from flight_demo import FlightLog, HoverMoveDemo, make_timed_demo
+            if args.demo:
+                demo = (make_timed_demo(args.trajectory, args.target_z, args.hover_seconds)
+                        if args.mode in EKF_MODES else HoverMoveDemo(args.target_z, args.hover_seconds))
             default_csv = (f"build/demo_live/{args.mode}_noise_{args.noise}.csv"
                            if args.mode in EKF_MODES else "build/firmware_pid/demo.csv")
+            if args.trajectory != "hover-move" or flow_fault.kind != "off":
+                suffix = f"_{flow_fault.spike_amplitude:g}" if flow_fault.kind == "spike" else ""
+                default_csv = f"build/demo_live/{args.trajectory}_{args.mode}_noise_{args.noise}_{flow_fault.kind}{suffix}.csv"
             csv_path = args.csv or SIM_DIR.parent / default_csv
             logger = FlightLog(csv_path)
             print(f"Flight CSV: {csv_path}", flush=True)

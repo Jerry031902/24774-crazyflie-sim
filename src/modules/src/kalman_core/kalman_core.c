@@ -217,7 +217,7 @@ void kalmanCoreScalarUpdate(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm,
   kalmanCoreScalarUpdateWithNis(this, Hm, error, stdMeasNoise, NULL);
 }
 
-void kalmanCoreScalarUpdateWithNis(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm, float error, float stdMeasNoise, float *nis)
+float kalmanCoreScalarUpdateWithNis(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm, float error, float stdMeasNoise, float *nis)
 {
   // The Kalman gain as a column vector
   NO_DMA_CCM_SAFE_ZERO_INIT static float K[KC_STATE_DIM];
@@ -292,6 +292,7 @@ void kalmanCoreScalarUpdateWithNis(kalmanCoreData_t* this, arm_matrix_instance_f
   assertStateNotNaN(this);
 
   this->isUpdated = true;
+  return HPHR;
 }
 
 void kalmanCoreUpdateWithPKE(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm, arm_matrix_instance_f32 *Km, arm_matrix_instance_f32 *P_w_m, float error)

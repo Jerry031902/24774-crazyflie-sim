@@ -46,6 +46,56 @@ class TimedHoverMoveDemo:
         return {"position_m": (0.5 if now >= self.move_time_s else 0., 0., self.target_z_m), "yaw_rad": 0.}
 
 
+class FlowShuttleDemo:
+    """Clock-only quintic shuttle; each leg has zero endpoint v and acceleration.
+
+    Fixed 1 m altitude by default, 10 s takeoff + 10 s hover + 32 s move +
+    10 s recovery. Both axes use identical schedules; no truth feedback.
+    """
+
+    def __init__(self, axis="x", target_z_m=1.):
+        if axis not in ("x", "y"):
+            raise ValueError("Shuttle axis must be x or y")
+        self.axis, self.target_z_m = axis, target_z_m
+        self.knots_s = (20., 24., 32., 40., 48., 52.)
+        self.knots_m = (0., 1., -1., 1., -1., 0.)
+        self.reset()
+
+    def reset(self):
+        self.phase, self.done = "takeoff", False
+        self.hover_start_s, self.move_time_s, self.end_time_s = 10., 20., 62.
+        self.time_limit_s = 63.  # GUI/headless main's existing bounded-demo guard.
+
+    def reference(self, time_s):
+        if time_s <= self.knots_s[0] or time_s >= self.knots_s[-1]:
+            return 0., 0., 0.
+        i = next(i for i in range(5) if time_s <= self.knots_s[i+1])
+        duration = self.knots_s[i+1]-self.knots_s[i]
+        u = (time_s-self.knots_s[i])/duration
+        distance = self.knots_m[i+1]-self.knots_m[i]
+        p = self.knots_m[i] + distance*(10*u**3-15*u**4+6*u**5)
+        v = distance/duration*(30*u**2-60*u**3+30*u**4)
+        a = distance/duration**2*(60*u-180*u**2+120*u**3)
+        return p, v, a
+
+    def target(self, state):
+        now = state["time_s"]
+        self.done = now >= self.end_time_s
+        self.phase = ("complete" if self.done else "recovery" if now >= 52 else
+                      "move" if now >= 20 else "hover" if now >= 10 else "takeoff")
+        p = self.reference(now)[0]
+        return {"position_m": (p if self.axis == "x" else 0.,
+                               p if self.axis == "y" else 0., self.target_z_m), "yaw_rad": 0.}
+
+
+def make_timed_demo(trajectory="hover-move", target_z_m=1., hover_hold_s=HOVER_HOLD_S):
+    if trajectory == "hover-move":
+        return TimedHoverMoveDemo(target_z_m, hover_hold_s)
+    if trajectory in ("flow-shuttle-x", "flow-shuttle-y"):
+        return FlowShuttleDemo(trajectory[-1], target_z_m)
+    raise ValueError(trajectory)
+
+
 class HoverMoveDemo:
     """Reach (0,0,z), hold for hover_hold_s, then reach (0.5,0,z)."""
 
@@ -104,6 +154,8 @@ class FlightLog:
         self.measurement_path = path.with_suffix(".measurements.csv")
         self.measurements = None
         self.measurement_writer = None
+        self.audit_paths = {name: path.with_suffix(f".{name}.csv") for name in ("flow_samples", "flow_updates")}
+        self.audit_files, self.audit_writers = {}, {}
 
     def write(self, state, target, command, phase, extra=None):
         """extra: optional dict of additional columns, same keys on every row."""
@@ -156,6 +208,13 @@ class FlightLog:
                 self.measurement_writer.writerow(innovation)
         if extra:
             row.update(extra)
+        for name in self.audit_paths:
+            for audit_row in command.get(name, []):
+                if name not in self.audit_files:
+                    self.audit_files[name] = self.audit_paths[name].open("w", newline="")
+                    self.audit_writers[name] = csv.DictWriter(self.audit_files[name], fieldnames=list(audit_row))
+                    self.audit_writers[name].writeheader()
+                self.audit_writers[name].writerow(audit_row)
         if self.writer is None:
             self.writer = csv.DictWriter(self.file, fieldnames=list(row))
             self.writer.writeheader()
@@ -165,3 +224,5 @@ class FlightLog:
         self.file.close()
         if self.measurements is not None:
             self.measurements.close()
+        for file in self.audit_files.values():
+            file.close()

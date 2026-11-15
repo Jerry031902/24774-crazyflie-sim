@@ -36,12 +36,13 @@ def state_dict(state):
 
 
 class FirmwareEKF:
-    def __init__(self, initial_xy_yaw=None):
+    def __init__(self, initial_xy_yaw=None, flow_audit=False, fault_labels=False):
         """initial_xy_yaw: optional (x m, y m, yaw rad), the stock kalman.initialX/
         initialY/initialYaw parameters. None keeps the stock zeros (baseline)."""
         import cffirmware
         self.cf = cffirmware
         self.initial_xy_yaw = initial_xy_yaw
+        self.flow_audit, self.fault_labels = flow_audit, fault_labels
         self.reset()
 
     def reset(self):
@@ -96,6 +97,7 @@ class FirmwareEKF:
         self.counts["process_noise"] += 1
 
         innovations = []
+        self.flow_updates = []
         for packet in packets:
             if packet.delivery_ms > now_ms:
                 raise ValueError("Cannot consume a measurement before arrival")
@@ -141,6 +143,15 @@ class FirmwareEKF:
                 # Read immediately: C diagnostics belong to the latest flow call.
                 # These use the actual scalar error/HPHR, not the Python prediction.
                 row.update(nis_x=cf.kalmanCoreGetFlowNisX(), nis_y=cf.kalmanCoreGetFlowNisY())
+                if self.flow_audit:
+                    self.flow_updates.append(dict(
+                        flow_sample_id=packet.sample_ms//10, sample_time_s=packet.sample_ms/1000,
+                        delivery_time_s=packet.delivery_ms/1000,
+                        hphr_x_pixels2=cf.kalmanCoreGetFlowInnovationVarianceX(),
+                        hphr_y_pixels2=cf.kalmanCoreGetFlowInnovationVarianceY(),
+                        prediction_x_counts=cf.kalmanCoreGetFlowPredictionX()/FLOW_RESOLUTION,
+                        prediction_y_counts=cf.kalmanCoreGetFlowPredictionY()/FLOW_RESOLUTION,
+                        nis_x=row["nis_x"], nis_y=row["nis_y"]))
             elif kind == "tof":
                 predicted = tof_model(s[cf.KC_STATE_Z], rotation[2, 2])
                 row.update(predicted_x=predicted, innovation_x=packet.value[0]-predicted,
@@ -152,6 +163,13 @@ class FirmwareEKF:
                 cf.kalmanCoreUpdateWithTof(self.core, measurement)
             else:
                 raise ValueError(f"Unsupported measurement {kind}")
+            # Labels are copied AFTER the C update; never supplied to C or used
+            # to decide whether/how a measurement updates the filter.
+            if self.fault_labels:
+                row.update(packet.flow_labels if kind == "flow" else {
+                    "flow_sample_id": "", "fault_type": "not_applicable",
+                    "fault_window_active": False, "fault_active": False,
+                    "fault_changed_x": False, "fault_changed_y": False})
             innovations.append(row)
 
         self.counts["finalize_calls"] += 1

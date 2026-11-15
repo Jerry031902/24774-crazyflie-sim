@@ -35,3 +35,11 @@ void kalmanCoreUpdateWithFlow(kalmanCoreData_t* this, const flowMeasurement_t *f
 // held until another flow update, including across core resets. Dimensionless.
 float kalmanCoreGetFlowNisX(void);
 float kalmanCoreGetFlowNisY(void);
+
+// Exact scalar HPHR [pixels^2] and cached prediction [pixels]. Read immediately
+// after the intended flow call; held across resets. Variance starts as NAN;
+// prediction retains the existing kalman_pred startup value (zero).
+float kalmanCoreGetFlowInnovationVarianceX(void);
+float kalmanCoreGetFlowInnovationVarianceY(void);
+float kalmanCoreGetFlowPredictionX(void);
+float kalmanCoreGetFlowPredictionY(void);
