@@ -27,6 +27,7 @@
 #include "log.h"
 #include "platform_defaults.h"
 #include "param.h"
+#include <math.h>
 
 #define FLOW_RESOLUTION 0.10f //We get the measurements in 10x the motion pixels (experimentally measured)
 
@@ -35,6 +36,11 @@ static float predictedNX;
 static float predictedNY;
 static float measuredNX;
 static float measuredNY;
+static float flowNisX = NAN;
+static float flowNisY = NAN;
+
+float kalmanCoreGetFlowNisX(void) { return flowNisX; }
+float kalmanCoreGetFlowNisY(void) { return flowNisY; }
 
 static Axis3f flowdeckPos = { .axis = { FLOWDECK_POS_X, FLOWDECK_POS_Y, FLOWDECK_POS_Z } }; // In body coordinate system
 
@@ -88,7 +94,7 @@ void kalmanCoreUpdateWithFlow(kalmanCoreData_t* this, const flowMeasurement_t *f
   hx[KC_STATE_PX] = (Npix * flow->dt / thetapix) * (this->R[2][2] / z_g);
 
   //First update
-  kalmanCoreScalarUpdate(this, &Hx, (measuredNX-predictedNX), flow->stdDevX*FLOW_RESOLUTION);
+  kalmanCoreScalarUpdateWithNis(this, &Hx, (measuredNX-predictedNX), flow->stdDevX*FLOW_RESOLUTION, &flowNisX);
 
   // Y velocity prediction and update
   float hy[KC_STATE_DIM] = {0};
@@ -101,7 +107,7 @@ void kalmanCoreUpdateWithFlow(kalmanCoreData_t* this, const flowMeasurement_t *f
   hy[KC_STATE_PY] = (Npix * flow->dt / thetapix) * (this->R[2][2] / z_g);
 
   // Second update
-  kalmanCoreScalarUpdate(this, &Hy, (measuredNY-predictedNY), flow->stdDevY*FLOW_RESOLUTION);
+  kalmanCoreScalarUpdateWithNis(this, &Hy, (measuredNY-predictedNY), flow->stdDevY*FLOW_RESOLUTION, &flowNisY);
 }
 
 /**
@@ -133,6 +139,14 @@ LOG_GROUP_START(kalman_pred)
  *  note: This is the same as motion.deltaY, so perhaps remove this?
  */
   LOG_ADD(LOG_FLOAT, measNY, &measuredNY)
+/**
+ * @brief Flow X scalar NIS before its correction (dimensionless, no gating)
+ */
+  LOG_ADD(LOG_FLOAT, nisX, &flowNisX)
+/**
+ * @brief Flow Y scalar NIS using covariance after the X correction (dimensionless)
+ */
+  LOG_ADD(LOG_FLOAT, nisY, &flowNisY)
 LOG_GROUP_STOP(kalman_pred)
 
 /**

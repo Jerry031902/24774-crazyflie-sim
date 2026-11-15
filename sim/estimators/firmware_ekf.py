@@ -118,7 +118,8 @@ class FirmwareEKF:
                    "measured_x": float(packet.value[0]), "measured_y": math.nan,
                    "predicted_x": math.nan, "predicted_y": math.nan,
                    "innovation_x": math.nan, "innovation_y": math.nan,
-                   "std_dev": packet.std, "used_by_core": True}
+                   "std_dev": packet.std, "used_by_core": True,
+                   "nis_x": math.nan, "nis_y": math.nan}
             if kind == "flow":
                 gyro = np.array([self.gyro_latest.x, self.gyro_latest.y, self.gyro_latest.z])
                 predicted_counts = flow_model(s[cf.KC_STATE_Z], rotation,
@@ -137,6 +138,9 @@ class FirmwareEKF:
                 measurement.dt = packet.dt_s
                 measurement.stdDevX = measurement.stdDevY = packet.std
                 cf.kalmanCoreUpdateWithFlow(self.core, measurement, self.gyro_latest)
+                # Read immediately: C diagnostics belong to the latest flow call.
+                # These use the actual scalar error/HPHR, not the Python prediction.
+                row.update(nis_x=cf.kalmanCoreGetFlowNisX(), nis_y=cf.kalmanCoreGetFlowNisY())
             elif kind == "tof":
                 predicted = tof_model(s[cf.KC_STATE_Z], rotation[2, 2])
                 row.update(predicted_x=predicted, innovation_x=packet.value[0]-predicted,

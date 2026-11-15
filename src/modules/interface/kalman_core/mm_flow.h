@@ -29,3 +29,9 @@
 
 // Measurements of flow (dnx, dny)
 void kalmanCoreUpdateWithFlow(kalmanCoreData_t* this, const flowMeasurement_t *flow, const Axis3f *gyro);
+
+// Read-only diagnostics from the most recent flow call (shared, like kalman_pred).
+// Read immediately after updating the intended core. NAN before the first call;
+// held until another flow update, including across core resets. Dimensionless.
+float kalmanCoreGetFlowNisX(void);
+float kalmanCoreGetFlowNisY(void);

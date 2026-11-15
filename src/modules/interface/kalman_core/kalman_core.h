@@ -191,4 +191,8 @@ void kalmanCoreDecoupleXY(kalmanCoreData_t* this);
 
 void kalmanCoreScalarUpdate(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm, float error, float stdMeasNoise);
 
+// Same scalar update, optionally recording error^2 / (H P H' + R) before correction.
+// A NULL output retains the original interface's behavior. No gating or tuning.
+void kalmanCoreScalarUpdateWithNis(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm, float error, float stdMeasNoise, float *nis);
+
 void kalmanCoreUpdateWithPKE(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm, arm_matrix_instance_f32 *Km, arm_matrix_instance_f32 *P_w_m, float error);

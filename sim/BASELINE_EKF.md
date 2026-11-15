@@ -228,3 +228,45 @@ step/disturbance, hover feedforward and free-fall regressions passed. The GUI
 entry point ran `ekf_closed_loop --noise on --demo --steps 2000`, produced state
 and measurement CSVs, and exited with status 0. Regression JSONs and unit-test
 output are retained in `build/ekf_baseline/`.
+
+## 7. Flow NIS diagnostics (logging only)
+
+The historical results above predate the measured 33 g stock reference in
+`build/step0_stock_33g_seed7/ekf`. Preserve that reference when evaluating changes.
+Flow updates now record dimensionless `nis_x` and `nis_y` in the measurement CSV;
+ToF rows contain NaN in those columns. No measurement gating, covariance tuning,
+or controller change is included.
+
+`kalmanCoreScalarUpdateWithNis` records `error * error / HPHR` using the exact
+innovation variance of the C scalar update. The original scalar-update entry
+point calls the same implementation without requesting a diagnostic. Flow X
+and Y request separate outputs; Y uses covariance after X, retaining the stock
+cached velocity/height prediction and original correction order.
+
+`kalmanCoreGetFlowNisX/Y` expose the latest values through `cffirmware`.
+The Python adapter reads them immediately after each flow call. Like the existing
+`kalman_pred` values, they are module-wide diagnostics, not per-core storage;
+they are NaN before the first flow update and remain held across core resets
+until another flow update. Firmware LOG names are `kalman_pred.nisX` and
+`kalman_pred.nisY`. The native bindings build uses `UNIT_TEST_MODE`, so it does
+not verify the embedded LOG registration or STM32 build. Hardware validation
+remains unperformed.
+
+After rebuilding bindings (including forced `build_ext`), run and analyze:
+
+```bash
+/isaac-sim/python.sh sim/tests/smoke_firmware_ekf.py --seed 7 \
+  --output-dir build/step1_nis_seed7/ekf
+/isaac-sim/python.sh sim/plot_flow_nis.py \
+  --input-dir build/step1_nis_seed7/ekf \
+  --reference-dir build/step0_stock_33g_seed7/ekf
+```
+
+Use new output directories for later experiments. The analysis checks flight
+CSV byte equality and exact equality of every original measurement CSV field.
+It saves one histogram per case and CSV/JSON statistics: count, mean, median,
+95th/99th/99.9th percentiles, and fractions strictly above 6.63 and 9.0. Phase
+comes from the flight CSV at delivery time; the final `complete` sample is
+assigned to move, so phase counts total all 3000 flow updates. No startup or
+tail samples are discarded. Empirical single-seed percentiles do not establish
+a universal chi-square calibration or independent-sample confidence bound.

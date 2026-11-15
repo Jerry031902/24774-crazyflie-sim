@@ -214,6 +214,11 @@ void kalmanCoreInit(kalmanCoreData_t *this, const kalmanCoreParams_t *params, co
 
 void kalmanCoreScalarUpdate(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm, float error, float stdMeasNoise)
 {
+  kalmanCoreScalarUpdateWithNis(this, Hm, error, stdMeasNoise, NULL);
+}
+
+void kalmanCoreScalarUpdateWithNis(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm, float error, float stdMeasNoise, float *nis)
+{
   // The Kalman gain as a column vector
   NO_DMA_CCM_SAFE_ZERO_INIT static float K[KC_STATE_DIM];
   static arm_matrix_instance_f32 Km = {KC_STATE_DIM, 1, (float *)K};
@@ -247,6 +252,11 @@ void kalmanCoreScalarUpdate(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm,
     HPHR += Hm->pData[i]*PHTd[i]; // this obviously only works if the update is scalar (as in this function)
   }
   ASSERT(!isnan(HPHR));
+
+  // Observation only: use the exact innovation variance used by this update.
+  if (nis != NULL) {
+    *nis = (error * error) / HPHR;
+  }
 
   // ====== MEASUREMENT UPDATE ======
   // Calculate the Kalman gain and perform the state update
