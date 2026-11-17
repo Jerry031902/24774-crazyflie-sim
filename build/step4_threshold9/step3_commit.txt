@@ -1,0 +1,29 @@
+commit 28a5e3b2fc98056bdaeecbccab3855612d034fdb
+Author:     jiaming <jhua2061@gmail.com>
+AuthorDate: Sun Nov 15 15:53:58 2026 -0500
+Commit:     jiaming <jhua2061@gmail.com>
+CommitDate: Sun Nov 15 15:53:58 2026 -0500
+
+    Add optional per-axis C flow gate and obstacle-free validation
+
+ bindings/cffirmware.i                           |   1 +
+ sim/BASELINE_EKF.md                             | 148 ++++++++++++++--
+ sim/README.md                                   |   4 +-
+ sim/analyze_flow_gate.py                        | 161 +++++++++++++++++
+ sim/controllers/ekf_pid.py                      |  13 +-
+ sim/estimators/firmware_ekf.py                  |  30 +++-
+ sim/flight_demo.py                              |   2 +-
+ sim/flow_gate.py                                |  43 +++++
+ sim/flow_test_scene.py                          |  72 ++++++++
+ sim/plot_ekf.py                                 |  17 +-
+ sim/run_sim.py                                  |  46 ++++-
+ sim/tests/flow_gate_stock_golden.json           |  16 ++
+ sim/tests/replay_flow_reference.py              |  93 ++++++++++
+ sim/tests/smoke_firmware_ekf.py                 |  31 +++-
+ sim/tests/test_flow_gate.py                     | 222 ++++++++++++++++++++++++
+ sim/tests/test_flow_gate_analysis.py            |  55 ++++++
+ src/modules/interface/kalman_core/kalman_core.h |  26 +++
+ src/modules/interface/kalman_core/mm_flow.h     |  11 ++
+ src/modules/src/kalman_core/kalman_core.c       |  52 ++++++
+ src/modules/src/kalman_core/mm_flow.c           |  66 ++++++-
+ 20 files changed, 1067 insertions(+), 42 deletions(-)

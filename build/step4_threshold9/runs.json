@@ -1,0 +1,1122 @@
+[
+  {
+    "seed": 7,
+    "mode": "gated",
+    "case": "off",
+    "path": "/workspace/build/step4_threshold9/seed7/gated/off/flow-shuttle-x_ekf_closed_loop_noise_on.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 7,
+    "mode": "stock",
+    "case": "off",
+    "path": "/workspace/build/step4_threshold9/seed7/stock/off/flow-shuttle-x_ekf_closed_loop_noise_on.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 17,
+    "mode": "gated",
+    "case": "off",
+    "path": "/workspace/build/step4_threshold9/seed17/gated/off/flow-shuttle-x_ekf_closed_loop_noise_on.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 17,
+    "mode": "stock",
+    "case": "off",
+    "path": "/workspace/build/step4_threshold9/seed17/stock/off/flow-shuttle-x_ekf_closed_loop_noise_on.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 27,
+    "mode": "gated",
+    "case": "off",
+    "path": "/workspace/build/step4_threshold9/seed27/gated/off/flow-shuttle-x_ekf_closed_loop_noise_on.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 27,
+    "mode": "stock",
+    "case": "off",
+    "path": "/workspace/build/step4_threshold9/seed27/stock/off/flow-shuttle-x_ekf_closed_loop_noise_on.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 37,
+    "mode": "gated",
+    "case": "off",
+    "path": "/workspace/build/step4_threshold9/seed37/gated/off/flow-shuttle-x_ekf_closed_loop_noise_on.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 37,
+    "mode": "stock",
+    "case": "off",
+    "path": "/workspace/build/step4_threshold9/seed37/stock/off/flow-shuttle-x_ekf_closed_loop_noise_on.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 47,
+    "mode": "gated",
+    "case": "off",
+    "path": "/workspace/build/step4_threshold9/seed47/gated/off/flow-shuttle-x_ekf_closed_loop_noise_on.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 47,
+    "mode": "stock",
+    "case": "off",
+    "path": "/workspace/build/step4_threshold9/seed47/stock/off/flow-shuttle-x_ekf_closed_loop_noise_on.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 7,
+    "mode": "gated",
+    "case": "spike5",
+    "path": "/workspace/build/step4_threshold9/seed7/gated/spike5/flow-shuttle-x_ekf_closed_loop_noise_on_spike_5.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 7,
+    "mode": "stock",
+    "case": "spike5",
+    "path": "/workspace/build/step4_threshold9/seed7/stock/spike5/flow-shuttle-x_ekf_closed_loop_noise_on_spike_5.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 17,
+    "mode": "gated",
+    "case": "spike5",
+    "path": "/workspace/build/step4_threshold9/seed17/gated/spike5/flow-shuttle-x_ekf_closed_loop_noise_on_spike_5.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 17,
+    "mode": "stock",
+    "case": "spike5",
+    "path": "/workspace/build/step4_threshold9/seed17/stock/spike5/flow-shuttle-x_ekf_closed_loop_noise_on_spike_5.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 27,
+    "mode": "gated",
+    "case": "spike5",
+    "path": "/workspace/build/step4_threshold9/seed27/gated/spike5/flow-shuttle-x_ekf_closed_loop_noise_on_spike_5.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 27,
+    "mode": "stock",
+    "case": "spike5",
+    "path": "/workspace/build/step4_threshold9/seed27/stock/spike5/flow-shuttle-x_ekf_closed_loop_noise_on_spike_5.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 37,
+    "mode": "gated",
+    "case": "spike5",
+    "path": "/workspace/build/step4_threshold9/seed37/gated/spike5/flow-shuttle-x_ekf_closed_loop_noise_on_spike_5.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 37,
+    "mode": "stock",
+    "case": "spike5",
+    "path": "/workspace/build/step4_threshold9/seed37/stock/spike5/flow-shuttle-x_ekf_closed_loop_noise_on_spike_5.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 47,
+    "mode": "gated",
+    "case": "spike5",
+    "path": "/workspace/build/step4_threshold9/seed47/gated/spike5/flow-shuttle-x_ekf_closed_loop_noise_on_spike_5.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 47,
+    "mode": "stock",
+    "case": "spike5",
+    "path": "/workspace/build/step4_threshold9/seed47/stock/spike5/flow-shuttle-x_ekf_closed_loop_noise_on_spike_5.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 7,
+    "mode": "gated",
+    "case": "spike10",
+    "path": "/workspace/build/step4_threshold9/seed7/gated/spike10/flow-shuttle-x_ekf_closed_loop_noise_on_spike_10.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 7,
+    "mode": "stock",
+    "case": "spike10",
+    "path": "/workspace/build/step4_threshold9/seed7/stock/spike10/flow-shuttle-x_ekf_closed_loop_noise_on_spike_10.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 17,
+    "mode": "gated",
+    "case": "spike10",
+    "path": "/workspace/build/step4_threshold9/seed17/gated/spike10/flow-shuttle-x_ekf_closed_loop_noise_on_spike_10.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 17,
+    "mode": "stock",
+    "case": "spike10",
+    "path": "/workspace/build/step4_threshold9/seed17/stock/spike10/flow-shuttle-x_ekf_closed_loop_noise_on_spike_10.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 27,
+    "mode": "gated",
+    "case": "spike10",
+    "path": "/workspace/build/step4_threshold9/seed27/gated/spike10/flow-shuttle-x_ekf_closed_loop_noise_on_spike_10.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 27,
+    "mode": "stock",
+    "case": "spike10",
+    "path": "/workspace/build/step4_threshold9/seed27/stock/spike10/flow-shuttle-x_ekf_closed_loop_noise_on_spike_10.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 37,
+    "mode": "gated",
+    "case": "spike10",
+    "path": "/workspace/build/step4_threshold9/seed37/gated/spike10/flow-shuttle-x_ekf_closed_loop_noise_on_spike_10.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 37,
+    "mode": "stock",
+    "case": "spike10",
+    "path": "/workspace/build/step4_threshold9/seed37/stock/spike10/flow-shuttle-x_ekf_closed_loop_noise_on_spike_10.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 47,
+    "mode": "gated",
+    "case": "spike10",
+    "path": "/workspace/build/step4_threshold9/seed47/gated/spike10/flow-shuttle-x_ekf_closed_loop_noise_on_spike_10.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 47,
+    "mode": "stock",
+    "case": "spike10",
+    "path": "/workspace/build/step4_threshold9/seed47/stock/spike10/flow-shuttle-x_ekf_closed_loop_noise_on_spike_10.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 7,
+    "mode": "gated",
+    "case": "spike20",
+    "path": "/workspace/build/step4_threshold9/seed7/gated/spike20/flow-shuttle-x_ekf_closed_loop_noise_on_spike_20.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 7,
+    "mode": "stock",
+    "case": "spike20",
+    "path": "/workspace/build/step4_threshold9/seed7/stock/spike20/flow-shuttle-x_ekf_closed_loop_noise_on_spike_20.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 17,
+    "mode": "gated",
+    "case": "spike20",
+    "path": "/workspace/build/step4_threshold9/seed17/gated/spike20/flow-shuttle-x_ekf_closed_loop_noise_on_spike_20.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 17,
+    "mode": "stock",
+    "case": "spike20",
+    "path": "/workspace/build/step4_threshold9/seed17/stock/spike20/flow-shuttle-x_ekf_closed_loop_noise_on_spike_20.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 27,
+    "mode": "gated",
+    "case": "spike20",
+    "path": "/workspace/build/step4_threshold9/seed27/gated/spike20/flow-shuttle-x_ekf_closed_loop_noise_on_spike_20.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 27,
+    "mode": "stock",
+    "case": "spike20",
+    "path": "/workspace/build/step4_threshold9/seed27/stock/spike20/flow-shuttle-x_ekf_closed_loop_noise_on_spike_20.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 37,
+    "mode": "gated",
+    "case": "spike20",
+    "path": "/workspace/build/step4_threshold9/seed37/gated/spike20/flow-shuttle-x_ekf_closed_loop_noise_on_spike_20.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 37,
+    "mode": "stock",
+    "case": "spike20",
+    "path": "/workspace/build/step4_threshold9/seed37/stock/spike20/flow-shuttle-x_ekf_closed_loop_noise_on_spike_20.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 47,
+    "mode": "gated",
+    "case": "spike20",
+    "path": "/workspace/build/step4_threshold9/seed47/gated/spike20/flow-shuttle-x_ekf_closed_loop_noise_on_spike_20.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 47,
+    "mode": "stock",
+    "case": "spike20",
+    "path": "/workspace/build/step4_threshold9/seed47/stock/spike20/flow-shuttle-x_ekf_closed_loop_noise_on_spike_20.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 7,
+    "mode": "gated",
+    "case": "spike50",
+    "path": "/workspace/build/step4_threshold9/seed7/gated/spike50/flow-shuttle-x_ekf_closed_loop_noise_on_spike_50.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 7,
+    "mode": "stock",
+    "case": "spike50",
+    "path": "/workspace/build/step4_threshold9/seed7/stock/spike50/flow-shuttle-x_ekf_closed_loop_noise_on_spike_50.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 17,
+    "mode": "gated",
+    "case": "spike50",
+    "path": "/workspace/build/step4_threshold9/seed17/gated/spike50/flow-shuttle-x_ekf_closed_loop_noise_on_spike_50.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 17,
+    "mode": "stock",
+    "case": "spike50",
+    "path": "/workspace/build/step4_threshold9/seed17/stock/spike50/flow-shuttle-x_ekf_closed_loop_noise_on_spike_50.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 27,
+    "mode": "gated",
+    "case": "spike50",
+    "path": "/workspace/build/step4_threshold9/seed27/gated/spike50/flow-shuttle-x_ekf_closed_loop_noise_on_spike_50.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 27,
+    "mode": "stock",
+    "case": "spike50",
+    "path": "/workspace/build/step4_threshold9/seed27/stock/spike50/flow-shuttle-x_ekf_closed_loop_noise_on_spike_50.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 37,
+    "mode": "gated",
+    "case": "spike50",
+    "path": "/workspace/build/step4_threshold9/seed37/gated/spike50/flow-shuttle-x_ekf_closed_loop_noise_on_spike_50.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 37,
+    "mode": "stock",
+    "case": "spike50",
+    "path": "/workspace/build/step4_threshold9/seed37/stock/spike50/flow-shuttle-x_ekf_closed_loop_noise_on_spike_50.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 47,
+    "mode": "gated",
+    "case": "spike50",
+    "path": "/workspace/build/step4_threshold9/seed47/gated/spike50/flow-shuttle-x_ekf_closed_loop_noise_on_spike_50.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 47,
+    "mode": "stock",
+    "case": "spike50",
+    "path": "/workspace/build/step4_threshold9/seed47/stock/spike50/flow-shuttle-x_ekf_closed_loop_noise_on_spike_50.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 7,
+    "mode": "gated",
+    "case": "zero",
+    "path": "/workspace/build/step4_threshold9/seed7/gated/zero/flow-shuttle-x_ekf_closed_loop_noise_on_zero.csv",
+    "stable": false,
+    "duration_s": 31.295,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": "AssertionError('Flight left the test arena')"
+  },
+  {
+    "seed": 7,
+    "mode": "stock",
+    "case": "zero",
+    "path": "/workspace/build/step4_threshold9/seed7/stock/zero/flow-shuttle-x_ekf_closed_loop_noise_on_zero.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 17,
+    "mode": "gated",
+    "case": "zero",
+    "path": "/workspace/build/step4_threshold9/seed17/gated/zero/flow-shuttle-x_ekf_closed_loop_noise_on_zero.csv",
+    "stable": false,
+    "duration_s": 31.418,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": "AssertionError('Flight left the test arena')"
+  },
+  {
+    "seed": 17,
+    "mode": "stock",
+    "case": "zero",
+    "path": "/workspace/build/step4_threshold9/seed17/stock/zero/flow-shuttle-x_ekf_closed_loop_noise_on_zero.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 27,
+    "mode": "gated",
+    "case": "zero",
+    "path": "/workspace/build/step4_threshold9/seed27/gated/zero/flow-shuttle-x_ekf_closed_loop_noise_on_zero.csv",
+    "stable": false,
+    "duration_s": 31.609,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": "AssertionError('Flight left the test arena')"
+  },
+  {
+    "seed": 27,
+    "mode": "stock",
+    "case": "zero",
+    "path": "/workspace/build/step4_threshold9/seed27/stock/zero/flow-shuttle-x_ekf_closed_loop_noise_on_zero.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 37,
+    "mode": "gated",
+    "case": "zero",
+    "path": "/workspace/build/step4_threshold9/seed37/gated/zero/flow-shuttle-x_ekf_closed_loop_noise_on_zero.csv",
+    "stable": false,
+    "duration_s": 30.903000000000002,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": "AssertionError('Flight left the test arena')"
+  },
+  {
+    "seed": 37,
+    "mode": "stock",
+    "case": "zero",
+    "path": "/workspace/build/step4_threshold9/seed37/stock/zero/flow-shuttle-x_ekf_closed_loop_noise_on_zero.csv",
+    "stable": false,
+    "duration_s": 31.101,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": "AssertionError('Flight left the test arena')"
+  },
+  {
+    "seed": 47,
+    "mode": "gated",
+    "case": "zero",
+    "path": "/workspace/build/step4_threshold9/seed47/gated/zero/flow-shuttle-x_ekf_closed_loop_noise_on_zero.csv",
+    "stable": false,
+    "duration_s": 31.119,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": "AssertionError('Flight left the test arena')"
+  },
+  {
+    "seed": 47,
+    "mode": "stock",
+    "case": "zero",
+    "path": "/workspace/build/step4_threshold9/seed47/stock/zero/flow-shuttle-x_ekf_closed_loop_noise_on_zero.csv",
+    "stable": false,
+    "duration_s": 31.753,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": "AssertionError('Flight left the test arena')"
+  },
+  {
+    "seed": 7,
+    "mode": "gated",
+    "case": "dropout",
+    "path": "/workspace/build/step4_threshold9/seed7/gated/dropout/flow-shuttle-x_ekf_closed_loop_noise_on_dropout.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 7,
+    "mode": "stock",
+    "case": "dropout",
+    "path": "/workspace/build/step4_threshold9/seed7/stock/dropout/flow-shuttle-x_ekf_closed_loop_noise_on_dropout.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 17,
+    "mode": "gated",
+    "case": "dropout",
+    "path": "/workspace/build/step4_threshold9/seed17/gated/dropout/flow-shuttle-x_ekf_closed_loop_noise_on_dropout.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 17,
+    "mode": "stock",
+    "case": "dropout",
+    "path": "/workspace/build/step4_threshold9/seed17/stock/dropout/flow-shuttle-x_ekf_closed_loop_noise_on_dropout.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 27,
+    "mode": "gated",
+    "case": "dropout",
+    "path": "/workspace/build/step4_threshold9/seed27/gated/dropout/flow-shuttle-x_ekf_closed_loop_noise_on_dropout.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 27,
+    "mode": "stock",
+    "case": "dropout",
+    "path": "/workspace/build/step4_threshold9/seed27/stock/dropout/flow-shuttle-x_ekf_closed_loop_noise_on_dropout.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 37,
+    "mode": "gated",
+    "case": "dropout",
+    "path": "/workspace/build/step4_threshold9/seed37/gated/dropout/flow-shuttle-x_ekf_closed_loop_noise_on_dropout.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 37,
+    "mode": "stock",
+    "case": "dropout",
+    "path": "/workspace/build/step4_threshold9/seed37/stock/dropout/flow-shuttle-x_ekf_closed_loop_noise_on_dropout.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 47,
+    "mode": "gated",
+    "case": "dropout",
+    "path": "/workspace/build/step4_threshold9/seed47/gated/dropout/flow-shuttle-x_ekf_closed_loop_noise_on_dropout.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 47,
+    "mode": "stock",
+    "case": "dropout",
+    "path": "/workspace/build/step4_threshold9/seed47/stock/dropout/flow-shuttle-x_ekf_closed_loop_noise_on_dropout.csv",
+    "stable": true,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 7,
+    "mode": "gated",
+    "case": "scale05",
+    "path": "/workspace/build/step4_threshold9/seed7/gated/scale05/flow-shuttle-x_ekf_closed_loop_noise_on_scale.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 7,
+    "mode": "stock",
+    "case": "scale05",
+    "path": "/workspace/build/step4_threshold9/seed7/stock/scale05/flow-shuttle-x_ekf_closed_loop_noise_on_scale.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 17,
+    "mode": "gated",
+    "case": "scale05",
+    "path": "/workspace/build/step4_threshold9/seed17/gated/scale05/flow-shuttle-x_ekf_closed_loop_noise_on_scale.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 17,
+    "mode": "stock",
+    "case": "scale05",
+    "path": "/workspace/build/step4_threshold9/seed17/stock/scale05/flow-shuttle-x_ekf_closed_loop_noise_on_scale.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 27,
+    "mode": "gated",
+    "case": "scale05",
+    "path": "/workspace/build/step4_threshold9/seed27/gated/scale05/flow-shuttle-x_ekf_closed_loop_noise_on_scale.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 27,
+    "mode": "stock",
+    "case": "scale05",
+    "path": "/workspace/build/step4_threshold9/seed27/stock/scale05/flow-shuttle-x_ekf_closed_loop_noise_on_scale.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 37,
+    "mode": "gated",
+    "case": "scale05",
+    "path": "/workspace/build/step4_threshold9/seed37/gated/scale05/flow-shuttle-x_ekf_closed_loop_noise_on_scale.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 37,
+    "mode": "stock",
+    "case": "scale05",
+    "path": "/workspace/build/step4_threshold9/seed37/stock/scale05/flow-shuttle-x_ekf_closed_loop_noise_on_scale.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 47,
+    "mode": "gated",
+    "case": "scale05",
+    "path": "/workspace/build/step4_threshold9/seed47/gated/scale05/flow-shuttle-x_ekf_closed_loop_noise_on_scale.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  },
+  {
+    "seed": 47,
+    "mode": "stock",
+    "case": "scale05",
+    "path": "/workspace/build/step4_threshold9/seed47/stock/scale05/flow-shuttle-x_ekf_closed_loop_noise_on_scale.csv",
+    "stable": false,
+    "duration_s": 62.0,
+    "contacts": {
+      "events": 0,
+      "first_contact_s": null,
+      "method": "PhysX contact report, threshold 0; callback timestamp is physics step end"
+    },
+    "error": null
+  }
+]

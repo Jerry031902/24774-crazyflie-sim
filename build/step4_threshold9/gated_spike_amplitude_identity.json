@@ -1,0 +1,22 @@
+[
+  {
+    "seed": 7,
+    "gated_20_vs_50_state_csv_identical": true
+  },
+  {
+    "seed": 17,
+    "gated_20_vs_50_state_csv_identical": true
+  },
+  {
+    "seed": 27,
+    "gated_20_vs_50_state_csv_identical": true
+  },
+  {
+    "seed": 37,
+    "gated_20_vs_50_state_csv_identical": true
+  },
+  {
+    "seed": 47,
+    "gated_20_vs_50_state_csv_identical": true
+  }
+]

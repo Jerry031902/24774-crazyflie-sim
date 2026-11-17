@@ -1,0 +1,242 @@
+[
+  {
+    "seed": 7,
+    "mode": "stock",
+    "reference": "spike5",
+    "case": "spike10",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 7,
+    "mode": "stock",
+    "reference": "spike5",
+    "case": "spike20",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 7,
+    "mode": "stock",
+    "reference": "spike5",
+    "case": "spike50",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 7,
+    "mode": "gated",
+    "reference": "spike5",
+    "case": "spike10",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 7,
+    "mode": "gated",
+    "reference": "spike5",
+    "case": "spike20",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 7,
+    "mode": "gated",
+    "reference": "spike5",
+    "case": "spike50",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 17,
+    "mode": "stock",
+    "reference": "spike5",
+    "case": "spike10",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 17,
+    "mode": "stock",
+    "reference": "spike5",
+    "case": "spike20",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 17,
+    "mode": "stock",
+    "reference": "spike5",
+    "case": "spike50",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 17,
+    "mode": "gated",
+    "reference": "spike5",
+    "case": "spike10",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 17,
+    "mode": "gated",
+    "reference": "spike5",
+    "case": "spike20",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 17,
+    "mode": "gated",
+    "reference": "spike5",
+    "case": "spike50",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 27,
+    "mode": "stock",
+    "reference": "spike5",
+    "case": "spike10",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 27,
+    "mode": "stock",
+    "reference": "spike5",
+    "case": "spike20",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 27,
+    "mode": "stock",
+    "reference": "spike5",
+    "case": "spike50",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 27,
+    "mode": "gated",
+    "reference": "spike5",
+    "case": "spike10",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 27,
+    "mode": "gated",
+    "reference": "spike5",
+    "case": "spike20",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 27,
+    "mode": "gated",
+    "reference": "spike5",
+    "case": "spike50",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 37,
+    "mode": "stock",
+    "reference": "spike5",
+    "case": "spike10",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 37,
+    "mode": "stock",
+    "reference": "spike5",
+    "case": "spike20",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 37,
+    "mode": "stock",
+    "reference": "spike5",
+    "case": "spike50",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 37,
+    "mode": "gated",
+    "reference": "spike5",
+    "case": "spike10",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 37,
+    "mode": "gated",
+    "reference": "spike5",
+    "case": "spike20",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 37,
+    "mode": "gated",
+    "reference": "spike5",
+    "case": "spike50",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 47,
+    "mode": "stock",
+    "reference": "spike5",
+    "case": "spike10",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 47,
+    "mode": "stock",
+    "reference": "spike5",
+    "case": "spike20",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 47,
+    "mode": "stock",
+    "reference": "spike5",
+    "case": "spike50",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 47,
+    "mode": "gated",
+    "reference": "spike5",
+    "case": "spike10",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 47,
+    "mode": "gated",
+    "reference": "spike5",
+    "case": "spike20",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "seed": 47,
+    "mode": "gated",
+    "reference": "spike5",
+    "case": "spike50",
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  }
+]

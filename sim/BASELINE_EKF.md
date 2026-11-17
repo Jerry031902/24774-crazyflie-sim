@@ -546,3 +546,84 @@ updates as denominator, separate forced accepts, and join fault labels by ID.
 False-rejection rate is scored in independent faults-off runs, not in potentially
 contaminated recovery samples of a fault run. Preserve per-seed results and
 paired differences, and list every metric worsened by gating.
+
+## Step 4: matched threshold-9 campaign
+
+The accepted Step 3 implementation is commit `28a5e3b2`. Step 4 fixes
+`flow-empty`, `flow-shuttle-x`, closed loop, noise on, mass 0.033 kg,
+threshold 9.0 and maxReject 10. Cases are off, spikes 5/10/20/50 counts
+(probability 0.1), zero, dropout and scale 0.5. Noise seeds are
+7/17/27/37/47, with fault seed equal to noise seed. Every mode/case starts
+in a fresh process. No parameter is tuned and no threshold-6.63 or Y flight
+is launched by this runner.
+
+`tests/run_flow_gate_campaign.py` runs or resumes the fixed 80-run matrix.
+It freezes source and native-library hashes and checks recorded configuration.
+Expected flight-check failures and position-bound terminations remain results;
+unexpected infrastructure errors stop the campaign. An existing partial run
+without final metadata requires review rather than automatic overwriting.
+
+The optional smoke-runner flags `--no-render` and `--no-plots` skip visual
+updates and per-flight PNGs, retaining the 1 kHz physics/sensor/controller
+steps and all CSVs. Both flags default off. Before the matrix proceeds, three
+fresh seed-7 runs are checked against the accepted Step 3 reference CSVs:
+stock clean, gated clean, gated spike 20. All 17 existing CSVs must match
+byte for byte. Metadata records `render_every_steps=0` for these runs.
+
+Example host commands for a fresh output directory (Git runs on the host):
+
+```bash
+docker exec -w /workspace -e PYTHONPATH=/workspace/build cf_sim_dev /isaac-sim/python.sh sim/tests/run_flow_gate_campaign.py --source-commit "$(git rev-parse HEAD)" --output-dir /workspace/build/step4_threshold9_repeat
+docker exec -w /workspace -e PYTHONPATH=/workspace/build cf_sim_dev /isaac-sim/python.sh sim/analyze_flow_campaign.py build/step4_threshold9_repeat
+docker exec -w /workspace -e PYTHONPATH=/workspace/build cf_sim_dev /isaac-sim/python.sh sim/report_flow_campaign.py build/step4_threshold9_repeat
+```
+
+`analyze_flow_campaign.py` requires all 80 runs for a final report; `--partial`
+writes a separately named intermediate report. RMS is computed from the XY
+error norm over [26,30) s and [30,35) s; maxima use the observed run. The off
+case uses the same nominal windows. Statistics use sample SD across seeds
+(ddof=1), and paired differences are gated minus stock. Recovery retains the
+same mode/seed clean-reference definition above; its mean/SD is conditional
+on observed recovery, with n reported explicitly. Censored recovery is never
+replaced with zero or an invented recovery time.
+
+Incomplete windows retain observed RMS and coverage but have no complete-window
+RMS. A truncated maximum is an observed lower bound, not a smaller-error win.
+Full-run paired differences are marked non-comparable when either run stops
+early. Exceeding a completed counterpart's maximum can still prove worse;
+otherwise the outcome is indeterminate. Per-axis and pooled rejection rates
+use actual attempted scalar updates, with active, clean, post-5-s clean and
+all-post-window clean scopes. Forced accepts are counted separately. Dropout
+has no active update and an undefined active rejection rate. Post-window rates
+from truncated runs cover only observed updates.
+
+The analysis checks actual C decisions, streaks, counters, label joins,
+pre-fault state prefixes, matched noise samples and fault schedules. It also
+checks that spike amplitudes share the same schedules within each seed/mode.
+`analysis/TABLES.md` contains every per-seed metric, mean/SD, paired difference
+and better/worse/tie/indeterminate count. CSV/JSON files provide the same data;
+`worse_per_seed.csv` and `worse_mean.csv` retain regressions. Static figures
+show paired errors, clean costs, and seed-7 zero-fault reacquisition.
+
+The saved campaign is under `build/step4_threshold9/`, including raw CSVs,
+recorded metadata, hash manifests and the final report. Its 80 runs had no
+contacts; 73 ran 62 s, while seven zero-fault runs reached the unchanged 20 m
+position bound. The final unit suite has 118 tests: 117 pass and the same
+single baseline failure remains. Safety flights were not rerun. The STM32
+toolchain is unavailable on this machine, so no embedded build is verified.
+
+The five-seed results do not show a consistent clean-flight error penalty:
+the full-run XY estimate maximum has paired delta +1.05 ± 7.87 cm, with 3/5
+seeds improved. All four during/post RMS endpoints first meet the predeclared
+descriptive improvement rule (negative mean paired delta, at least 4/5 seeds
+improved per endpoint) at spike 10. Spike 50 improves all six error endpoints
+in 5/5 seeds. These statements do not establish population significance.
+
+Zero exposes a serious recovery problem: no active zero updates are rejected,
+but after normal flow resumes, gated X rejects about 90% of updates and forces
+one in ten. All five gated zero flights reach the position bound, versus two
+stock flights; neither mode shows joint recovery. Scale 0.5 worsens post-window
+estimate/tracking RMS in 4/5 seeds, by means of 4.28/4.43 cm. Dropout has no
+active gate decisions and mixed paired results; no forced accept occurs in
+dropout or scale. No parameter was changed in response. Full per-seed results,
+censoring, and all regressions are in the saved report, not just these means.

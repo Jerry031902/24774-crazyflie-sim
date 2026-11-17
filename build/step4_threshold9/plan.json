@@ -1,0 +1,57 @@
+{
+  "seeds": [
+    7,
+    17,
+    27,
+    37,
+    47
+  ],
+  "cases": [
+    "off",
+    "spike5",
+    "spike10",
+    "spike20",
+    "spike50",
+    "zero",
+    "dropout",
+    "scale05"
+  ],
+  "modes": [
+    "stock",
+    "gated"
+  ],
+  "threshold": 9.0,
+  "max_reject": 10,
+  "fault_window_s": [
+    26.0,
+    30.0
+  ],
+  "noise": true,
+  "scene": "flow-empty",
+  "trajectory": "flow-shuttle-x",
+  "native_sha256": "28fc5c260253576ac888e80fc2f7d0c855146b88ceff29e0c5319317cd8c5c97",
+  "source_sha256": {
+    "bindings/cffirmware.i": "7b9674576649d9361425799ef932f48d25e9bfde4201fdd688cb193db0091428",
+    "sim/BASELINE_EKF.md": "37783c5a695f83c24fe67a5ebe8d76112c42d535d313e6405fea9c779eb4ea9c",
+    "sim/README.md": "0a1014f6c13dadbaf8b3aec9f1b7a9339cfdd960df855668437a3ed1d275e76f",
+    "sim/controllers/ekf_pid.py": "ecbe9a3d996f349478f155e64d94aa7bec46803f66d088c4334561907f427d8f",
+    "sim/estimators/firmware_ekf.py": "4b1802a6d91b1b82a0368b1ccda4eb3daa7b826cd73d2f7a82a827a2adf2a125",
+    "sim/flight_demo.py": "e3310d3d4a3bffd9ff9124fbac523c0ce91b35018a36351399744fc3c4642e68",
+    "sim/plot_ekf.py": "189702c33fb6271dcb0af89a74f94c7a9f12e90e936b1c93e09a237128940509",
+    "sim/run_sim.py": "f37dcc8090c4de5d13a13a0f30331392e8acbf60c0f5b283b65ac53b4adea00f",
+    "sim/tests/smoke_firmware_ekf.py": "c7aa8ed236bac16085431cc1825e1ddfcfab1d44d8bf708e71ba17b0e57a1d84",
+    "src/modules/interface/kalman_core/kalman_core.h": "d4677bc32c7d5bd480b4a79fda3946c09999166c083ff9895613a6d32b83e90d",
+    "src/modules/interface/kalman_core/mm_flow.h": "20ad8d9e4f862691ff592da0444438c85d2eef245f39abbe6e4ce113a0ea14c6",
+    "src/modules/src/kalman_core/kalman_core.c": "769d9d17023aa0af9300102f40ca31827e26551482d0efa2134db11e0544eafd",
+    "src/modules/src/kalman_core/mm_flow.c": "2fd218dec08a0490f8d8d23bccefd15006e2ec1e2be2c50078b1b16e4ffe058e",
+    "sim/analyze_flow_gate.py": "0271c50d2398ef60dd9550245c5f58eb2a994fa3ab1beff89b68322bf0ddc1fc",
+    "sim/flow_gate.py": "af84bc96a8380cb2692aca9516495131bb086053671cf60f3827927ee9d2747d",
+    "sim/flow_test_scene.py": "20273ba9d7b295e28b89f544c35852d3db1a830ab08e03a225ca40faabef3b1f",
+    "sim/tests/flow_gate_stock_golden.json": "b2989d32252503caf4e48f7155df3cafd7d206c3b16fc1f8872cc420af375d61",
+    "sim/tests/replay_flow_reference.py": "512f19443a3156cb30c250ddc7a325975fb26ca75998b6b59714d506f8477ab9",
+    "sim/tests/test_flow_gate.py": "092e163b56ae9f27b08c0aa83e5c6529b56083aaf3923208ac663eeb96a50e0e",
+    "sim/tests/test_flow_gate_analysis.py": "da28d7acb699f9c51413f44b98030a3d220ae4d030ecae5ebf3288d9f405bfe5",
+    "sim/tests/run_flow_gate_campaign.py": "da0c537966ee9ab6a3ff86606715dca7c5b231382ed5066b6913510192178296"
+  },
+  "commit": "28a5e3b2fc98056bdaeecbccab3855612d034fdb"
+}

@@ -1,0 +1,35 @@
+{
+  "fixed_before_remaining_new_seeds": true,
+  "windows": {
+    "during": [
+      26,
+      30
+    ],
+    "post_5s": [
+      30,
+      35
+    ]
+  },
+  "std": "sample standard deviation, ddof=1; never pooled across time",
+  "paired_difference": "gated minus stock for matching noise/fault seed",
+  "recovery": {
+    "estimate_margin_m": 0.05,
+    "tracking_margin_m": 0.1,
+    "hold_s": 1,
+    "reference": "same mode and seed faults-off",
+    "censor": "first physical contact, truncated flight or end of matched clean trace; report recovered count and conditional mean/std"
+  },
+  "clear_spike_improvement": "For each of the four during/post-5s RMS endpoints, negative mean paired difference and at least 4/5 seeds strictly improved; descriptive consistency, not a population significance claim. Full-run maxima reported separately.",
+  "truncation": "Report observed maxima with duration. An incomplete window is not treated as a complete RMS window; comparable pair count is explicit. A partial maximum is a lower bound: exceeding a completed counterpart proves worse, but a smaller partial maximum never proves better.",
+  "rate_directions": {
+    "fault_active_rejection": "higher detection rate; not by itself flight benefit",
+    "clean_rejection": "lower",
+    "forced_count": "frequency diagnostic; increases listed separately from performance deterioration"
+  },
+  "parameters_locked": {
+    "threshold": 9.0,
+    "maxReject": 10,
+    "spike_probability": 0.1,
+    "scale_factor": 0.5
+  }
+}

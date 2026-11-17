@@ -21,6 +21,8 @@ def main():
     parser.add_argument("--noise", choices=("both", "off", "on"), default="both")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--scene", choices=("arena", "flow-empty"), default="arena")
+    parser.add_argument("--no-render", action="store_true", help="Skip visual updates only; verify CSV identity before using for a campaign")
+    parser.add_argument("--no-plots", action="store_true", help="Retain CSV/JSON metrics without per-flight PNGs")
     parser.add_argument("--output-dir", type=Path, default=Path(__file__).resolve().parents[2]/"build/ekf_baseline")
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from flow_faults import add_flow_arguments, config_from_args
@@ -84,6 +86,7 @@ def main():
                 report["scene"] = scene_info
                 report["flow_gate"] = controller.ekf.flow_gate_settings
                 report["bindings_sha256"] = hashlib.sha256(Path(_cffirmware.__file__).read_bytes()).hexdigest()
+                report["render_every_steps"] = 0 if args.no_render else runtime.RENDER_EVERY
                 if fault.kind != "off":
                     report["flow_fault_schedule"] = {"phase": args.flow_fault_phase,
                                                       "offset_s": args.flow_fault_offset,
@@ -101,7 +104,7 @@ def main():
                         if contacts is not None:
                             contacts.time_s = (step+1)*runtime.PHYSICS_DT
                         sim.step(render=False)
-                        if (step+1) % runtime.RENDER_EVERY == 0:
+                        if not args.no_render and (step+1) % runtime.RENDER_EVERY == 0:
                             sim.render()
                         if step % 5000 == 0:
                             print(f"{name} t={truth['time_s']:.1f} phase={demo.phase} "
@@ -117,7 +120,8 @@ def main():
 
                 try:
                     report.update(analyze(csv_path))
-                    report["plot"] = str(plot_ekf(csv_path, gate_enabled=gate.enabled))
+                    if not args.no_plots:
+                        report["plot"] = str(plot_ekf(csv_path, gate_enabled=gate.enabled))
                     packets = load(csv_path.with_suffix(".measurements.csv"))
                     for sensor in ("flow", "tof"):
                         selected = packets[packets["sensor"] == sensor]

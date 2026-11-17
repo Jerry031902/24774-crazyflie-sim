@@ -1,0 +1,31 @@
+Tracked git diff --stat:
+ sim/BASELINE_EKF.md             | 81 +++++++++++++++++++++++++++++++++++++++++
+ sim/README.md                   |  2 +
+ sim/tests/smoke_firmware_ekf.py |  8 +++-
+ 3 files changed, 89 insertions(+), 2 deletions(-)
+
+New untracked files (included in the review patch):
+
+ /dev/null => sim/analyze_flow_campaign.py | 281 ++++++++++++++++++++++++++++++
+ 1 file changed, 281 insertions(+)
+
+ /dev/null => sim/report_flow_campaign.py | 282 +++++++++++++++++++++++++++++++
+ 1 file changed, 282 insertions(+)
+
+ /dev/null => sim/tests/run_flow_gate_campaign.py | 125 +++++++++++++++++++++++
+ 1 file changed, 125 insertions(+)
+
+ /dev/null => sim/tests/test_flow_campaign.py | 95 ++++++++++++++++++++++++++++
+ 1 file changed, 95 insertions(+)
+
+Full review scope: 7 files, +872/-2.
+No Step 4 commit; no push.
+
+Explicit file list:
+sim/BASELINE_EKF.md
+sim/README.md
+sim/tests/smoke_firmware_ekf.py
+sim/analyze_flow_campaign.py
+sim/report_flow_campaign.py
+sim/tests/run_flow_gate_campaign.py
+sim/tests/test_flow_campaign.py

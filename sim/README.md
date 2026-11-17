@@ -30,6 +30,8 @@ The PID uses the previous completed EKF output. The EKF worker then processes th
 
 Shared C algorithms can be tested in sim and reused on hardware after adding the required bindings and hardware integration. The baseline uses `--flow-gate 0` (stock). An optional per-axis C NIS gate is described in [BASELINE_EKF.md](BASELINE_EKF.md#step-3-optional-per-axis-c-flow-gate); fault flights require `--scene flow-empty`. Passing in sim does not validate hardware timing, sensor fidelity, or the complete flight safety logic.
 
+The [Step 4 matched campaign](BASELINE_EKF.md#step-4-matched-threshold-9-campaign) records five paired noise/fault seeds per case, complete per-seed statistics, and explicit handling of truncated flights and censored recovery. Its threshold is fixed at 9.0; it does not launch a threshold sweep.
+
 ---
 
 ## Repo layout
