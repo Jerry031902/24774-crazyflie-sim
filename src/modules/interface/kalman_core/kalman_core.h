@@ -68,6 +68,10 @@ typedef enum {
   KC_FLOW_ACCEPTED = 0, KC_FLOW_REJECTED = 1, KC_FLOW_FORCED = 2
 } kalmanScalarGateDecision_t;
 
+typedef enum {
+  KC_FLOW_ARMED = 0, KC_FLOW_RECOVERY = 1
+} kalmanScalarGateMode_t;
+
 // Per-core/per-axis accounting. Accepted excludes forced, so the three totals
 // are disjoint. Init resets counters; changing configuration resets only streaks.
 typedef struct {
@@ -78,6 +82,13 @@ typedef struct {
   uint16_t streakBefore;
   uint16_t runAtDecision;
   uint8_t decision;
+  uint8_t state;
+  uint8_t stateBefore;
+  uint8_t stateAtUpdate;
+  uint16_t recoveryConsecutive;
+  uint16_t recoveryRunAtDecision;
+  uint32_t recoveryEntries;
+  uint32_t samplesInRecovery;
 } kalmanScalarGateState_t;
 
 
@@ -122,6 +133,7 @@ typedef struct {
   uint8_t flowGateEnabled;
   float flowGateThreshold;
   uint16_t flowGateMaxReject;
+  uint16_t flowGateRecoverK;
 } kalmanCoreData_t;
 
 // The parameters used by the filter
@@ -221,5 +233,9 @@ float kalmanCoreScalarUpdateWithNis(kalmanCoreData_t* this, arm_matrix_instance_
 float kalmanCoreScalarUpdateWithGate(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm,
   float error, float stdMeasNoise, float *nis, kalmanScalarGateState_t *gate,
   uint8_t enabled, float threshold, uint16_t maxReject);
+
+float kalmanCoreScalarUpdateWithRecoveryGate(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm,
+  float error, float stdMeasNoise, float *nis, kalmanScalarGateState_t *gate,
+  float threshold, uint16_t maxReject, uint16_t recoverK);
 
 void kalmanCoreUpdateWithPKE(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm, arm_matrix_instance_f32 *Km, arm_matrix_instance_f32 *P_w_m, float error);

@@ -168,6 +168,16 @@ class FirmwareEKF:
                             fault_type=labels.get("fault_type", "off"),
                             fault_active=labels.get("fault_active", False),
                             fault_changed=labels.get(f"fault_changed_{axis}", False)))
+                        if self.flow_gate_config.enabled == 2:
+                            self.flow_gate_rows[-1].update(
+                                state_before=("armed", "recovery")[status.stateBefore],
+                                state_at_update=("armed", "recovery")[status.stateAtUpdate],
+                                state_after=("armed", "recovery")[status.state],
+                                recovery_good_run=status.recoveryRunAtDecision,
+                                recovery_good_streak=status.recoveryConsecutive,
+                                recovery_entries_total=status.recoveryEntries,
+                                recovery_samples_total=status.samplesInRecovery,
+                                recover_k=cf.kalmanCoreGetFlowGateRecoverK())
                     row["used_by_core"] = any(d != "rejected" for d in decisions)
                 if self.flow_audit:
                     self.flow_updates.append(dict(

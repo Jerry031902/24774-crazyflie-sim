@@ -32,6 +32,8 @@ Shared C algorithms can be tested in sim and reused on hardware after adding the
 
 The [Step 4 matched campaign](BASELINE_EKF.md#step-4-matched-threshold-9-campaign) records five paired noise/fault seeds per case, complete per-seed statistics, and explicit handling of truncated flights and censored recovery. Its threshold is fixed at 9.0; it does not launch a threshold sweep.
 
+Gate v2 (`--flow-gate 2`) adds a per-axis RECOVERY state; modes 0 and 1 retain their previous behavior and CSV schema. See the [fixed A/B experiment](BASELINE_EKF.md#gate-v2-recovery-and-frozen-ab-experiment) for semantics, validation seeds, and reporting commands. This remains simulation-only.
+
 ---
 
 ## Repo layout

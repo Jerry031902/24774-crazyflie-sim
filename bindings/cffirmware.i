@@ -49,6 +49,7 @@
 // through kalmanCoreGetFlowNisX/Y, exported by mm_flow.h below.
 %ignore kalmanCoreScalarUpdateWithNis;
 %ignore kalmanCoreScalarUpdateWithGate;
+%ignore kalmanCoreScalarUpdateWithRecoveryGate;
 %include "kalman_core.h"
 %include "mm_tdoa.h"
 %include "mm_pose.h"

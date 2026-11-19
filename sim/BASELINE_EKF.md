@@ -627,3 +627,58 @@ estimate/tracking RMS in 4/5 seeds, by means of 4.28/4.43 cm. Dropout has no
 active gate decisions and mixed paired results; no forced accept occurs in
 dropout or scale. No parameter was changed in response. Full per-seed results,
 censoring, and all regressions are in the saved report, not just these means.
+
+## Gate v2: recovery and frozen A/B experiment
+
+`flowGate.enable=2` / `--flow-gate 2` selects a separate per-axis state machine.
+Modes 0 (stock) and 1 (v1) retain their update paths and CSV schemas. ARMED
+rejects NIS above the threshold. On the `maxReject`th consecutive high-NIS
+update, it enters RECOVERY and accepts that same update with the original R.
+RECOVERY accepts every update with original R until `recoverK` consecutive
+updates have NIS <= threshold. The Kth update is processed in RECOVERY; the
+next is ARMED. A high NIS breaks the low-NIS streak. X and Y are independent.
+
+The entry update counts as forced. Other RECOVERY updates count as accepted;
+accepted/rejected/forced are disjoint. Recovery samples include entry and exit.
+Additional mode-2 CSV fields are state_before/state_at_update/state_after,
+recovery_good_run/recovery_good_streak, recovery_entries_total,
+recovery_samples_total, and recover_k. Firmware LOG fields stateX/Y, usedX/Y,
+goodX/Y, goodRunX/Y, entryX/Y, recSmplX/Y mirror these diagnostics. Parameter
+`flowGate.recoverK` and CLI `--flow-gate-recover-k` default to 10. Counter totals
+reset with EKF init; runtime configuration changes clear the per-axis streaks
+and state. Fault labels remain outside the C gate. Dropout has no gate decision.
+
+Before any v2 flight, threshold=9.0, maxReject=10, recoverK=10 were fixed in
+`build/step5_flow_gate_v2/pre_results_plan.json`. recoverK is an engineering
+choice, not fitted to results. A uses seeds 7,17,27,37,47, v2 only, and reuses
+Step 4 stock/v1. B uses unused seeds 2026111701 through 2026111705, stock and
+v2. Both cover off, spike 5/10/20/50, zero, dropout, scale 0.5 in flow-empty,
+flow-shuttle-x, closed loop, noise on, mass 0.033 kg. Noise and fault seeds
+match. No threshold 6.63 flights are scheduled.
+
+The runner freezes Python/C/binding source, golden fixtures, native bindings,
+and the pre-results plan before A. B verifies the same hashes and requires a
+recorded review of A with no implementation or parameter changes. Each flight
+checks at least 6144 MiB free GPU memory before starting. Flights run sequentially.
+Expected bounded-flight failures remain results; unexpected failures stop work.
+
+Inside cf_sim_dev, from /workspace with PYTHONPATH=/workspace/build:
+
+```bash
+/isaac-sim/python.sh -m unittest discover -s sim/tests -p 'test_*.py'
+/isaac-sim/python.sh sim/tests/replay_flow_gate_versions.py
+/isaac-sim/python.sh sim/tests/run_flow_recovery_campaign.py A
+/isaac-sim/python.sh sim/analyze_flow_recovery.py build/step5_flow_gate_v2 A
+/isaac-sim/python.sh sim/report_flow_recovery.py build/step5_flow_gate_v2 A
+# Review A and record a_review.json before explicitly launching B.
+/isaac-sim/python.sh sim/tests/run_flow_recovery_campaign.py B
+/isaac-sim/python.sh sim/analyze_flow_recovery.py build/step5_flow_gate_v2 B
+/isaac-sim/python.sh sim/report_flow_recovery.py build/step5_flow_gate_v2 B
+```
+
+Reports preserve Step 4 RMS windows, full-run maximum handling, same-mode clean
+recovery references, censoring and paired statistics. Every decision/state/
+counter is independently reconstructed from logged NIS. RECOVERY counts are
+diagnostics, not standalone quality outcomes. No claim of hardware timing,
+embedded build validation, or real featureless-floor behavior follows from
+these simulation experiments; the STM32 build toolchain is unavailable here.

@@ -172,10 +172,10 @@ class FlowGateTests(unittest.TestCase):
 
     def test_invalid_configuration_does_not_replace_valid_config(self):
         self.configure(1,9,3)
-        for enabled,threshold,limit in ((2,9,3),(1,0,3),(1,float("nan"),3),(1,float("inf"),3),(1,9,0)):
+        for enabled,threshold,limit in ((3,9,3),(1,0,3),(1,float("nan"),3),(1,float("inf"),3),(1,9,0)):
             self.assertFalse(cf.kalmanCoreSetFlowGateConfig(enabled,threshold,limit))
         self.assertEqual((cf.kalmanCoreGetFlowGateEnabled(),cf.kalmanCoreGetFlowGateThreshold(),cf.kalmanCoreGetFlowGateMaxReject()),(1,9,3))
-        for args in ((1,0,3),(1,9,65536),(1,9,1.5),(2,9,3)):
+        for args in ((1,0,3),(1,9,65536),(1,9,1.5),(3,9,3)):
             with self.assertRaises(ValueError):
                 FlowGateConfig(*args)
 
