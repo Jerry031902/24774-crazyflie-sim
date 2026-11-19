@@ -137,11 +137,16 @@ Logger 保留 raw readings，不会把 invalid 替换为零或删掉。分别计
 | `flow_motor.csv` | `motion.deltaX/deltaY`、`range.zrange`、`motor.m1..m4`、`motion.motion/squal/shutter/std/outlierCount` | 23 bytes | 100 Hz |
 | `status.csv` | `kalman.varPX/varPY/varPZ`、`supervisor.info` | 14 bytes | 20 Hz |
 | `ranger.csv`，仅 `--ranger` | `range.front/back/left/right/up` | 10 bytes | 10 Hz；period 为 `max(100, --period)` ms |
+| `nis.csv`，仅 `--nis` | `kalman_pred.nisX/nisY`、`flowGate.stateX/stateY`、`rejX/rejY`、`entryX/entryY` | 26 bytes | 100 Hz，跟随 `--period` |
 | `setpoints.csv`，仅 flight | host time、phase、commanded XYZ、yaw | host 文件，不占 log block | nominal 50 Hz |
 
 前五个 CSV 都有 `timestamp_ms`、`timestamp_unwrapped_ms`、`host_elapsed_s`、`phase`。`--period` 控制前四个 block；status period 为 `max(50, --period)` ms。100 Hz 是 logging 请求速率，不是每个 sensor 的独立 sample rate，也不是保证到包率。默认共约 420 个 log packets/s；是否有足够 radio bandwidth 必须看实际 counts/gaps。可以先用 static run 检查，必要时用 `--period 20` 降低 logging load。
 
 可选的 `ranger.csv` 使用相同 timestamp/phase 列，默认额外请求 10 packets/s。Multi-ranger driver 的 nominal task period 是 100 ms，实际 data-ready 等待可能使它更慢；log packet 时间仍不是 sensor acquisition 时间。
+
+`--nis` 会从 firmware 读取当前的 gate 设置。每行是一个 log packet 的 snapshot。NIS 是每个 axis 最近一次 flow update 的值，第一次 update 前可以是 `nan`。相邻行可能读到同一次 update，也可能跳过中间的 update。`stateX/Y` 为 0 (ARMED) 或 1 (RECOVERY)，`rejX/Y` 和 `entryX/Y` 分别累计每个 axis 的实际 rejection 次数和进入 RECOVERY 的次数。计算区间增量时按 counter reset 分段。这个独立 block 达到 cflib 的 26-byte payload 上限，默认额外请求 100 packets/s。
+
+`meta.json` 的 `flowGate` 保存设备报告的 PARAM 值，包括 `enable`、`threshold`、`maxReject` 和 `recoverK`。`firmware_revision` 是设备报告的 12 位 Git revision，原始字段及 firmware 提供的 `modified` 标记见 `firmware_reported`。缺少所需 LOG 或 PARAM 时，`--nis` 会在 flight setup 前退出并列出缺项。
 
 `meta.json` 中 counts 和 gaps 用于发现 logging 问题，**不是精确的 sensor dropout counter**。CSV 约每秒 flush，正常退出时 close；进程强杀、掉电或 storage failure 仍可能丢数据，不能承诺绝不丢失。
 
