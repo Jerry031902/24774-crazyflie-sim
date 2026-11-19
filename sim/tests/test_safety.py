@@ -165,6 +165,35 @@ class ArbiterTests(unittest.TestCase):
         s.step(observe(),frame(.7,7),.7,n)
         self.assertEqual(s.state,'RECOVER'); self.assertEqual(n.resumes,1)
 
+    def test_stopped_coverage_rejection_waits_for_new_heading_without_replanning(self):
+        s,n=self.ready(); s.state='NORMAL'
+        yaw=.4  # Current heading is outside the delayed sample's 13.5-degree cone.
+        u,rate=s.step(observe(yaw=yaw),frame(.4,4,yaw=0),.4,n)
+        self.assertEqual(s.reason,'unobserved_direction')
+        self.assertEqual(s.state,'HOLD')
+        np.testing.assert_array_equal(u,[0,0]); self.assertEqual(rate,0)
+        self.assertEqual(n.calls,0)  # Rejected navigator changes are rolled back.
+        self.assertFalse(s.need_replan)
+        # A held packet cannot release HOLD; new, matching measurements can.
+        s.step(observe(yaw=yaw),frame(.4,4,yaw=0),.42,n)
+        self.assertEqual(s.clear_count,0)
+        for seq in (5,6,7):
+            latest=frame(seq*.1,seq,yaw=yaw)
+            s.step(observe(yaw=yaw),latest,seq*.1,n)
+        self.assertEqual(s.state,'RECOVER'); self.assertEqual(n.resumes,0)
+        u,_=s.step(observe(yaw=yaw),latest,.72,n)
+        self.assertTrue(s.accepted); self.assertGreater(u[0],0)
+        self.assertEqual(n.calls,1)
+
+    def test_moving_coverage_rejection_still_replans(self):
+        s,n=self.ready(); s.state='NORMAL'
+        s.step(observe(yaw=.4,velocity=(.1,0,0)),frame(.4,4),.4,n)
+        self.assertEqual(s.reason,'unobserved_direction')
+        self.assertEqual(s.state,'BRAKE'); self.assertTrue(s.need_replan)
+        for seq in (5,6,7):
+            s.step(observe(yaw=.4),frame(seq*.1,seq,yaw=.4),seq*.1,n)
+        self.assertEqual(s.state,'RECOVER'); self.assertEqual(n.resumes,1)
+
     def test_hold_feedback_is_bounded_and_points_back(self):
         s,n=self.ready(); s.state='HOLD'; s.hold_position=np.array([1.,4.])
         s.clear_count=0

@@ -339,7 +339,14 @@ class SafetySupervisor:
             self.reason, self.source = monitor.reason, source
             if self.state in ("NORMAL", "RECOVER"):
                 self.state = "BRAKE"
-                self.need_replan |= speed > c.stop_speed or np.linalg.norm(nominal) > c.approach_speed
+                # A stopped turn can face beyond the delayed ranger cones.
+                # Reject the translation and wait for fresh coverage without
+                # replacing the rolled-back route with another avoidance scan.
+                # Motion already in progress still needs the normal replan.
+                coverage_wait = (source == "primary" and monitor.reason == "unobserved_direction"
+                                 and speed <= c.stop_speed)
+                if not coverage_wait:
+                    self.need_replan |= speed > c.stop_speed or np.linalg.norm(nominal) > c.approach_speed
                 self._event(now, "brake", observation)
         if self.state == "BRAKE" and observation.finite() and speed <= c.stop_speed:
             self.state = "HOLD"

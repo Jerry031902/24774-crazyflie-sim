@@ -68,4 +68,22 @@ MATLAB_MAIN = Mission(
             "Pillar": (0.20, 0.65, 0.30), "Bench": (0.90, 0.65, 0.15)},
 )
 
-MISSIONS = {m.name: m for m in (MATLAB_MAIN,)}
+# A separate diagnostic scene: one box blocks the direct start-to-goal leg.
+# There are no intermediate waypoints; the navigator must find its own detour.
+SINGLE_OBSTACLE = Mission(
+    name="single_obstacle",
+    description="Single-box Safety OFF/ON comparison with one final goal",
+    xlim=(0.0, 8.0),
+    ylim=(0.0, 8.0),
+    obstacles=(
+        {"kind": "box", "name": "Box", "center": (4.0, 4.0), "size": (1.0, 2.0)},
+    ),
+    start=(1.0, 4.0),
+    waypoints=(),
+    goal=(7.0, 4.0),
+    scene="single_obstacle.usd",
+    obstacle_height=2.0,
+    colors={"Box": (0.55, 0.55, 0.60)},
+)
+
+MISSIONS = {m.name: m for m in (MATLAB_MAIN, SINGLE_OBSTACLE)}

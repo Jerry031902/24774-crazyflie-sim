@@ -40,6 +40,10 @@ RAW packet + health clocks -> independent Backup ----------------+-> arbiter
   not advance waypoints, scan buffers or events. Recovery after interrupted
   translation preserves target/episode history and clears the stale partial
   plan. A stationary scan pause is preserved.
+- A stopped translation rejected only for `unobserved_direction` waits in HOLD
+  for fresh ranger frames without starting a new avoidance scan on recovery.
+  The rejected navigator step is still rolled back, and all Primary/Backup
+  checks remain active. A rejection while moving still requests replanning.
 - Scans count each raw frame once, use sample orientation/time, and await
   fresh endpoint measurements, and the unchecked final diagonal slide is
   disabled, whenever the navigator is given timestamped frames. Missions and
@@ -130,6 +134,98 @@ directions at 0.2/0.5 m), the same as MATLAB's default. Safety uses the enabled
 ranger std.
 
 ## Inspect results
+
+### Single-obstacle comparison
+
+`single_obstacle` is a separate 8 x 8 m room. Start is (1, 4), goal is
+(7, 4), and a 1 x 2 x 2 m box at (4, 4) blocks the direct route. There are
+no intermediate waypoints. This is a new diagnostic scene, not a reconstruction
+of the presentation's scene. On the host, use:
+
+```bash
+xhost '+si:localuser:#1234'
+sudo docker exec -it cf_sim_dev bash /workspace/sim/run_single_obstacle.sh on
+# After closing that flight window, run the same scene without Safety:
+sudo docker exec -it cf_sim_dev bash /workspace/sim/run_single_obstacle.sh off
+```
+
+The helper regenerates `sim/scenes/single_obstacle.usd` using Isaac Sim, then
+opens the flight GUI with the firmware navigator/PID and Ranger noise off.
+It assumes firmware bindings were already built. Each invocation saves separate,
+readable logs under `build/single_obstacle/`. No step limit is set: on reaching
+the goal, the GUI keeps holding until closed or interrupted with Ctrl+C.
+
+### Record actual Isaac Sim video
+
+After building firmware bindings, run on the host:
+
+```bash
+xhost '+si:localuser:#1234'
+sudo docker exec -it cf_sim_dev bash /workspace/sim/record_single_obstacle.sh on
+```
+
+`sim/record_mission.py` records a new run using actual GUI viewport PNGs at
+1280 x 720 / 20 fps. It samples the same 1 ms physics/firmware loop as the normal
+mission runner. Capture waits render without physics, and verify the physics
+step index has not changed. Video time is simulation time, not wall-clock time.
+Display-only start/goal rings have no colliders. Source scenes are not saved
+with the recording camera or rings.
+
+The recording finishes three simulation seconds after navigation completes,
+or after 120 simulation seconds if it does not complete. Leave the window open
+until `VIDEO_SAVED` appears. Closing it early is an error and retains partial
+images/logs. A timeout video may show an incomplete mission; check its report.
+
+Each recording saves `flight.mp4`, full-rate `flight.csv`, ranger logs,
+`flight.safety.json` (Safety ON only), per-frame `frames.csv`, raw `frames/`,
+and `capture.json` under a new `build/single_obstacle_video/on-*` directory.
+Use `off` instead of `on` for the matched baseline.
+
+Encoding uses FFmpeg with libx264 from PATH or the ignored local
+`build/video_tools/ffmpeg` binary. The current workspace has that binary prepared;
+on another machine install FFmpeg or pass `--ffmpeg PATH` to `record_mission.py`.
+No container rebuild is needed. General missions are also supported:
+
+```bash
+/isaac-sim/python.sh sim/record_mission.py --mission matlab_main --safety on \
+  --output build/multi_obstacle_recording --max-seconds 180
+```
+
+### Multi-obstacle and popup release checks
+
+On the host, the following suite records four independent firmware-PID runs:
+
+```bash
+xhost '+si:localuser:#1234'
+sudo docker exec -it cf_sim_dev bash /workspace/sim/run_validation_suite.sh
+```
+
+Order: `multi_on`, `multi_off`, `popup_on`, `popup_off`. The static runs use
+`matlab_main` with up to 320 simulation seconds (ending three seconds after goal
+completion). Popup runs use the single-box room with the box's visibility and
+collision initially disabled. At three seconds after settled takeoff/navigation
+start, both are enabled at the original box location. The box remains stationary
+thereafter. This is a newly appearing obstacle test, not a moving-obstacle model.
+No obstacle geometry/event notification is passed to the navigator or Safety;
+their inputs remain the normal delayed Ranger packets. Collision metrics use
+the empty room before appearance and include the box afterwards.
+
+Popup JSON records appearance time, current speed/clearance, and the first
+delivered Ranger hit on the box. A premature hit while disabled is an error.
+Insertion overlapping the vehicle is refused. Live PhysX collider changes and
+sensor detection must pass on the GPU machine; CPU scheduling tests alone do
+not validate them.
+
+Each run has a video, CSVs, `capture.json`, and `validation.json` under
+`build/validation_suite/run-*/`. Passing requires an encoded video, all targets
+reached, no unreachable targets/collision/Safety error; popup additionally
+requires appearance during motion and a real Ranger detection. The suite
+continues after a failed run to collect diagnostics and prints either
+`SUITE_PASSED` or `SUITE_NEEDS_REVIEW`. It does not commit or push anything.
+These are deterministic, noise-free truth-feedback regressions, not a hardware
+or global safety guarantee. Review logs before publishing a tested version.
+
+### Default mission outputs
 
 Default Safety outputs have a separate suffix, for example:
 
