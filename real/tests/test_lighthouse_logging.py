@@ -439,7 +439,7 @@ class LighthouseTests(unittest.TestCase):
         self.assertAlmostEqual(float(landing[-1]["z_m"]), -0.4)
 
     def test_abort_descent_freezes_estimate_or_last_command_when_position_is_stale(self):
-        for cause in ("geofence", "ctrl-c", "logging", "stale position"):
+        for cause in ("geofence", "ctrl-c", "logging", "stale position", "no stations", "stale lighthouse"):
             with self.subTest(cause=cause):
                 bench = self.bench = RadioBench()
                 def measure(name, data):
@@ -448,11 +448,14 @@ class LighthouseTests(unittest.TestCase):
                             data["stateEstimate.x"] += 0.55 if cause == "geofence" else 0.15
                         if cause == "logging" and name == "imu" and bench.pose[1] > -2.93:
                             data["gyro.x"] = math.nan
+                        if cause == "no stations" and name == "lighthouse":
+                            data["lighthouse.bsActive"] = 0
                 bench.adjust_sample = measure
-                if cause == "stale position":
+                if cause in ("stale position", "stale lighthouse"):
+                    dropped = "pos_vel" if cause == "stale position" else "lighthouse"
                     packet = bench.packet
                     def deliver(config, tick):
-                        if config.name != "pos_vel" or bench.pose[1] <= -2.93:
+                        if config.name != dropped or bench.pose[1] <= -2.93:
                             packet(config, tick)
                     bench.packet = deliver
                 if cause == "ctrl-c":
@@ -477,6 +480,139 @@ class LighthouseTests(unittest.TestCase):
                 landing_xy = {(float(r["x_m"]), float(r["y_m"])) for r in commands if r["phase"] == "landing"}
                 self.assertEqual(landing_xy, {expected})
                 bench.cf.supervisor.send_arming_request.assert_called_with(False)
+
+    def test_one_station_is_logged_and_method_determines_whether_flight_continues(self):
+        for method in ("0", "1"):
+            with self.subTest(method=method):
+                bench = self.bench = RadioBench()
+                bench.cf.param.values["lighthouse"]["method"] = method
+                loss_times = []
+                def lose_one(name, data):
+                    if name == "lighthouse" and bench.armed and bench.pose[2] > -0.32:
+                        data["lighthouse.bsCalVal"] = 0b0010  # Both stations still report received/active.
+                        loss_times.append(bench.now)
+                bench.adjust_sample = lose_one
+                code, meta = self.flight()
+                with (self.path / "lighthouse.csv").open() as file:
+                    rows = list(csv.DictReader(file))
+                self.assertTrue(any(int(row["lighthouse.bsCalVal"]) == 2
+                                    and int(row["lighthouse.bsActive"]) == MASK for row in rows))
+                if method == "1":
+                    self.assertEqual((code, meta["status"]), (0, "completed"))
+                    self.assertIn("hover", [e["phase"] for e in meta["events"]])
+                else:
+                    self.assertEqual(code, 1)
+                    self.assertIn("usable station count below 2", meta["error"])
+                    landing = next(e["host_elapsed_s"] for e in meta["events"] if e["phase"] == "landing")
+                    self.assertGreaterEqual(landing - loss_times[0], app.LIGHTHOUSE_LOSS_S - 1e-6)
+                    self.assertLessEqual(landing - loss_times[0], app.LIGHTHOUSE_LOSS_S + 0.021)
+
+    def test_transient_zero_station_intervals_reset_on_recovery(self):
+        bad_start_ms = None
+        def blink(name, data):
+            nonlocal bad_start_ms
+            if name == "lighthouse" and self.bench.armed and self.bench.pose[2] > -0.32:
+                tick = round(self.bench.now * 1000)
+                if bad_start_ms is None:
+                    bad_start_ms = tick
+                if tick - bad_start_ms in (0, 100, 200, 400, 500, 600):
+                    data["lighthouse.bsReceive"] = 0
+        self.bench.adjust_sample = blink
+        code, meta = self.flight()
+        self.assertEqual((code, meta["status"]), (0, "completed"))
+        with (self.path / "lighthouse.csv").open() as file:
+            self.assertEqual(sum(int(row["lighthouse.bsReceive"]) == 0 for row in csv.DictReader(file)), 6)
+
+    def test_a_late_healthy_packet_cannot_hide_a_missed_deadline(self):
+        for fault in ("silence", "masks"):
+            with self.subTest(fault=fault):
+                bench = RadioBench()
+                recorder = app.Recorder(bench.cf, self.path, 10, clock=lambda: bench.now, lighthouse=True)
+                with (patch.object(app.LogConfig, "start", autospec=True, side_effect=bench.start),
+                      patch.object(app.LogConfig, "stop"), patch.object(app.LogConfig, "delete")):
+                    try:
+                        recorder.start()
+                        recorder.watch_lighthouse_flight(lambda _: None)
+                        config = recorder.blocks["lighthouse"]["config"]
+                        def masks(name, data):
+                            if fault == "masks" and name == "lighthouse" and bench.now < 0.51:
+                                data["lighthouse.bsGeoVal"] = 0
+                        bench.adjust_sample = masks
+                        # Deliver a healthy packet after the deadline, before the next control check.
+                        for ms in ([360] if fault == "silence" else [100, 200, 300, 400, 510]):
+                            bench.now = ms / 1000
+                            bench.packet(config, ms)
+                        reason = "Stale Lighthouse telemetry" if fault == "silence" else "Lighthouse tracking lost"
+                        with self.assertRaisesRegex(app.LoggingError, reason):
+                            recorder.check()
+                    finally:
+                        recorder.close()
+
+    def test_silent_or_duplicate_lighthouse_packets_expire_while_other_blocks_continue(self):
+        for duplicate in (False, True):
+            with self.subTest(duplicate=duplicate):
+                bench = self.bench = RadioBench()
+                packet = bench.packet
+                last_new_tick = None
+                def deliver(config, tick):
+                    nonlocal last_new_tick
+                    if config.name == "lighthouse":
+                        if bench.armed and bench.pose[2] > -0.32:
+                            if duplicate:
+                                packet(config, last_new_tick)
+                            return
+                        last_new_tick = tick
+                    packet(config, tick)
+                bench.packet = deliver
+                code, meta = self.flight()
+                self.assertEqual(code, 1)
+                self.assertIn("Stale Lighthouse telemetry", meta["error"])
+                landing = next(e["host_elapsed_s"] for e in meta["events"] if e["phase"] == "landing")
+                with (self.path / "lighthouse.csv").open() as file:
+                    rows = [r for r in csv.DictReader(file) if float(r["host_elapsed_s"]) <= landing]
+                times = [float(r["host_elapsed_s"]) for r in rows if r["timestamp_ms"] == rows[-1]["timestamp_ms"]]
+                self.assertEqual(len(times) > 1, duplicate)
+                self.assertGreaterEqual(landing - times[0], app.LIGHTHOUSE_STALE_S - 1e-6)
+                self.assertLessEqual(landing - times[0], app.LIGHTHOUSE_STALE_S + 0.021)
+
+    def test_loss_during_normal_descent_finishes_landing_before_flow_restore(self):
+        bench = self.bench
+        descending = False
+        def command(x, y, z, yaw):
+            nonlocal descending
+            if z < bench.pose[2]:
+                descending = True
+            bench.command(x, y, z, yaw)
+        def lose_tracking(name, data):
+            if descending and name == "lighthouse":
+                data["lighthouse.bsActive"] = 0
+            if descending and name == "pos_vel":
+                data["stateEstimate.x"] += 0.12  # Observe the abort using the latest estimate for descent.
+        bench.cf.commander.send_position_setpoint.side_effect = command
+        bench.adjust_sample = lose_tracking
+        code, meta = self.flight()
+        self.assertEqual(code, 1)
+        self.assertIn("usable station count below 1", meta["error"])
+        with (self.path / "setpoints.csv").open() as file:
+            landing = [r for r in csv.DictReader(file) if r["phase"] == "landing"]
+        self.assertAlmostEqual(float(landing[0]["x_m"]), 2)
+        self.assertAlmostEqual(float(landing[-1]["x_m"]), 2.12)
+        self.assertAlmostEqual(float(landing[-1]["z_m"]), -0.4)
+        armed = bench.trace.index(("arm", True))
+        disarmed = bench.trace.index(("arm", False))
+        self.assertFalse(any(op[0] in ("write", "read") for op in bench.trace[armed:disarmed]))
+        self.assertGreater(bench.trace.index(("write", "motion.disable", "0")), disarmed)
+        bench.cf.commander.send_stop_setpoint.assert_called()
+        self.assertEqual(meta["lighthouse"]["motion.disable"]["restored_readback"], 0)
+
+    def test_ground_recording_continues_logging_lost_station_masks(self):
+        def lose_on_ground(name, data):
+            if name == "lighthouse" and self.bench.now > 0:
+                data["lighthouse.bsReceive"] = 0
+        self.bench.adjust_sample = lose_on_ground
+        code, meta = self.bench.run(self.path, ["--lighthouse", "--height", "0", "--duration", "1"])
+        self.assertEqual((code, meta["status"]), (0, "completed"))
+        self.bench.cf.supervisor.send_arming_request.assert_not_called()
 
     def test_rotated_geofence_all_boundaries(self):
         origin = app.FlightOrigin(2, -3, -0.4, 90)

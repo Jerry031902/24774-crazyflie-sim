@@ -40,6 +40,9 @@ ORIGIN_WINDOW_MS = 1000
 ORIGIN_MAX_GAP_MS = {"pos_vel": 100, "attitude": 100, "lighthouse": 150}
 ORIGIN_SPREAD_M = 0.05
 ORIGIN_YAW_SPREAD_DEG = 5.0
+# Flight limits measured on the host monotonic clock. Station masks refresh at ~5 Hz.
+LIGHTHOUSE_LOSS_S = 0.40
+LIGHTHOUSE_STALE_S = 0.35
 FENCE_XY_MARGIN_M = 0.5
 FENCE_Z_MARGIN_M = 0.3
 CONNECT_TIMEOUT_S = 20.0
@@ -98,6 +101,26 @@ def tracking_stations(data):
     """One bit per channel. Require the same stations in all four masks."""
     return (int(data["lighthouse.bsReceive"]) & int(data["lighthouse.bsActive"])
             & int(data["lighthouse.bsGeoVal"]) & int(data["lighthouse.bsCalVal"]))
+
+
+@dataclass
+class LighthouseFlightWatch:
+    minimum_stations: int
+    loss_since: float | None = None
+
+    def check(self, now, last_new_packet):
+        if now >= last_new_packet + LIGHTHOUSE_STALE_S:
+            raise LoggingError(f"Stale Lighthouse telemetry: no new device timestamp for "
+                               f"{now - last_new_packet:.3f} s (limit {LIGHTHOUSE_STALE_S:.2f} s)")
+        if self.loss_since is not None and now >= self.loss_since + LIGHTHOUSE_LOSS_S:
+            raise LoggingError(f"Lighthouse tracking lost: usable station count below "
+                               f"{self.minimum_stations} for {now - self.loss_since:.3f} s")
+
+    def observe(self, data, now):
+        if tracking_stations(data).bit_count() >= self.minimum_stations:
+            self.loss_since = None
+        elif self.loss_since is None:
+            self.loss_since = now
 
 
 @dataclass(frozen=True)
@@ -192,6 +215,7 @@ class Recorder:
             self.log_blocks.update(LIGHTHOUSE_LOG_BLOCK)
         self.origin_window = None
         self.position_guard = None
+        self.lighthouse_watch = None
         self.lock = threading.RLock()
         self.blocks = {}
         self.errors = []
@@ -235,11 +259,12 @@ class Recorder:
                                 continue
                             raise ValueError("nonfinite measurement")
                         now = self.clock()
-                        if block["last_ms"] is None:
+                        previous_ms = block["last_ms"]
+                        if previous_ms is None:
                             block["first_ms"] = timestamp
                             block["unwrapped_ms"] = timestamp
                         else:
-                            gap = (timestamp - block["last_ms"]) % TIMESTAMP_MODULUS
+                            gap = (timestamp - previous_ms) % TIMESTAMP_MODULUS
                             if gap >= TIMESTAMP_MODULUS // 2:
                                 raise ValueError("device timestamp went backwards or device rebooted")
                             block["unwrapped_ms"] += gap
@@ -247,6 +272,13 @@ class Recorder:
                         block["writer"].writerow([timestamp, block["unwrapped_ms"],
                                                   now - self.origin, self.phase] + values)
                         block.update(last_ms=timestamp, last_host=now, latest=dict(data), count=block["count"] + 1)
+                        if name == "lighthouse" and timestamp != previous_ms:
+                            last_new = block.get("last_new_host")
+                            block["last_new_host"] = now
+                            if self.lighthouse_watch and not self.errors:
+                                # A recovery packet cannot erase a deadline reached between control ticks.
+                                self.lighthouse_watch.check(now, last_new)
+                                self.lighthouse_watch.observe(data, now)
                         if self.origin_window is not None and name in self.origin_window:
                             rows = self.origin_window[name]
                             if not rows or rows[-1][0] != block["unwrapped_ms"]:
@@ -302,6 +334,8 @@ class Recorder:
         with self.lock:
             if self.errors:
                 raise LoggingError(self.errors[0])
+            if self.lighthouse_watch:
+                self.lighthouse_watch.check(self.clock(), self.blocks["lighthouse"]["last_new_host"])
             for name, block in self.blocks.items():
                 timeout = max(LOG_STALE_S, 3 * block["period_ms"] / 1000)
                 if not block["count"] or self.clock() - block["last_host"] > timeout:
@@ -334,11 +368,21 @@ class Recorder:
                 self.origin_window = None
         return stable_origin(samples)
 
-    def watch_position(self, guard):
+    def watch_lighthouse_flight(self, position_guard):
         with self.lock:
-            if guard:
-                guard(self.blocks["pos_vel"]["latest"])  # Catch a breach before arming as well.
-            self.position_guard = guard
+            if position_guard is None:
+                self.position_guard = self.lighthouse_watch = None
+                return
+            self.check()
+            block = self.blocks["lighthouse"]
+            if tracking_stations(block["latest"]).bit_count() < 2:
+                raise LoggingError("Lost two-station Lighthouse tracking before arming")
+            # lighthouse_setup already validated this downloaded parameter before flight.
+            method = int(self.cf.param.values["lighthouse"]["method"])
+            watch = LighthouseFlightWatch(minimum_stations=1 if method == 1 else 2)
+            watch.check(self.clock(), block["last_new_host"])
+            position_guard(self.blocks["pos_vel"]["latest"])
+            self.position_guard, self.lighthouse_watch = position_guard, watch
 
     def fresh_position(self):
         with self.lock:
@@ -549,11 +593,11 @@ class PositionFlight:
             deadline = max(deadline + 1 / SETPOINT_HZ, self.clock())
             self.sleep(max(0, deadline - self.clock()))
 
-    def land(self):
+    def land(self, monitor=False):
         start_z = self.z
         duration = start_z / VERTICAL_SPEED_M_S
-        self.stream(duration, lambda t: max(0, start_z - VERTICAL_SPEED_M_S * t), "landing", monitor=False)
-        self.stream(0.5, lambda _: 0, "landing", monitor=False)
+        self.stream(duration, lambda t: max(0, start_z - VERTICAL_SPEED_M_S * t), "landing", monitor=monitor)
+        self.stream(0.5, lambda _: 0, "landing", monitor=monitor)
 
     def stop_and_disarm(self):
         # No background thread can overwrite these stop commands.
@@ -568,11 +612,8 @@ class PositionFlight:
     def run(self, height, duration, shuttle=None, speed=SHUTTLE_SPEED_M_S):
         completed = False
         if self.lighthouse:
-            self.recorder.check()
-            if tracking_stations(self.recorder.latest()).bit_count() < 2:
-                raise LoggingError("Lost two-station Lighthouse tracking before arming")
             length = shuttle[0] if shuttle else 0.0
-            self.recorder.watch_position(lambda d: self.origin.check_fence(d, length, height))
+            self.recorder.watch_lighthouse_flight(lambda d: self.origin.check_fence(d, length, height))
         try:
             self.arm_attempted = True  # Set BEFORE the request, including exceptions in that request.
             self.cf.supervisor.send_arming_request(True)
@@ -593,6 +634,9 @@ class PositionFlight:
                     self.stream(TURN_HOLD_S, lambda _: height, "hold_home")
             if duration:
                 self.stream(duration, lambda _: height, "hover")
+            if self.lighthouse:
+                # A fault during normal descent also enters the land-in-place cleanup below.
+                self.land(monitor=True)
             completed = True
         finally:
             if self.arm_attempted:
@@ -611,7 +655,7 @@ class PositionFlight:
                 finally:
                     self.stop_and_disarm()
             if self.lighthouse:
-                self.recorder.watch_position(None)
+                self.recorder.watch_lighthouse_flight(None)
         if completed and self.cleanup_errors:
             raise RuntimeError("Flight cleanup failed: " + "; ".join(self.cleanup_errors))
 
