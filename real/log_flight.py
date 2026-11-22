@@ -7,6 +7,7 @@ Uses public position-setpoint API in one thread, not MotionCommander's __enter__
 
 import argparse
 import csv
+from dataclasses import asdict, dataclass
 import hashlib
 import importlib.metadata
 import json
@@ -31,6 +32,16 @@ MAX_DURATION_S = 120.0
 SETPOINT_HZ = 50
 VERTICAL_SPEED_M_S = 0.2
 HOVER_SETTLE_S = 3.0
+SHUTTLE_SPEED_M_S = 0.2
+TURN_HOLD_S = 0.5
+ORIGIN_WINDOW_MS = 1000
+# Limits for both device timestamp gaps and the host age of the latest packet.
+# At 10 Hz this allows 50 ms of Lighthouse jitter and rejects a 200 ms gap.
+ORIGIN_MAX_GAP_MS = {"pos_vel": 100, "attitude": 100, "lighthouse": 150}
+ORIGIN_SPREAD_M = 0.05
+ORIGIN_YAW_SPREAD_DEG = 5.0
+FENCE_XY_MARGIN_M = 0.5
+FENCE_Z_MARGIN_M = 0.3
 CONNECT_TIMEOUT_S = 20.0
 LOG_START_TIMEOUT_S = 5.0
 LOG_STALE_S = 0.5
@@ -54,6 +65,12 @@ NIS_VALUES = ("kalman_pred.nisX", "kalman_pred.nisY")
 NIS_LOG_BLOCK = {"nis": [*NIS_VALUES, "flowGate.stateX", "flowGate.stateY",
                          "flowGate.rejX", "flowGate.rejY", "flowGate.entryX", "flowGate.entryY"]}
 GATE_PARAMS = ("enable", "threshold", "maxReject", "recoverK")
+# Four native float32 values plus five uint16 station masks = 26 bytes.
+LIGHTHOUSE_LOG_BLOCK = {"lighthouse": [
+    "lighthouse.x", "lighthouse.y", "lighthouse.z", "lighthouse.delta",
+    "lighthouse.bsReceive", "lighthouse.bsActive", "lighthouse.bsGeoVal",
+    "lighthouse.bsCalVal", "lighthouse.bsCalCon",
+]}
 UNITS = {
     "gyro.*": "body deg/s, calibrated and filtered",
     "acc.*": "body Gs, calibrated/aligned and filtered; includes gravity at rest",
@@ -77,16 +94,104 @@ class LoggingError(RuntimeError):
     pass
 
 
+def tracking_stations(data):
+    """One bit per channel. Require the same stations in all four masks."""
+    return (int(data["lighthouse.bsReceive"]) & int(data["lighthouse.bsActive"])
+            & int(data["lighthouse.bsGeoVal"]) & int(data["lighthouse.bsCalVal"]))
+
+
+@dataclass(frozen=True)
+class FlightOrigin:
+    x_m: float = 0.0
+    y_m: float = 0.0
+    z_m: float = 0.0
+    yaw_deg: float = 0.0
+
+    def xy_at(self, forward_m):
+        yaw = math.radians(self.yaw_deg)
+        return self.x_m + forward_m * math.cos(yaw), self.y_m + forward_m * math.sin(yaw)
+
+    def check_fence(self, data, distance, height):
+        # Express the world estimate in the fixed takeoff heading, even at yaw 90 degrees.
+        yaw = math.radians(self.yaw_deg)
+        dx, dy = data["stateEstimate.x"] - self.x_m, data["stateEstimate.y"] - self.y_m
+        forward = dx * math.cos(yaw) + dy * math.sin(yaw)
+        lateral = -dx * math.sin(yaw) + dy * math.cos(yaw)
+        up = data["stateEstimate.z"] - self.z_m
+        if not (-FENCE_XY_MARGIN_M <= forward <= distance + FENCE_XY_MARGIN_M
+                and abs(lateral) <= FENCE_XY_MARGIN_M
+                and -FENCE_Z_MARGIN_M <= up <= height + FENCE_Z_MARGIN_M):
+            raise LoggingError(f"Lighthouse geofence exceeded (forward={forward:.3f}, "
+                               f"lateral={lateral:.3f}, up={up:.3f} m)")
+
+
+def common_origin_window(window, reference):
+    """Select a shared second or more of pose and reference observations."""
+    reference_rows = window[reference]
+    start = reference_rows[0][0]
+    span = reference_rows[-1][0] - start
+    if span < ORIGIN_WINDOW_MS:
+        return None
+
+    covered = {}
+    for name, rows in window.items():
+        # The streams share a 24-bit device clock but can start on opposite sides
+        # of a rollover. Only keep samples bracketed by the reference packets.
+        offsets = (((timestamp - start) % TIMESTAMP_MODULUS, data) for timestamp, data in rows)
+        covered[name] = [(offset, data) for offset, data in offsets if offset <= span]
+        if not covered[name]:
+            return None
+    common_start = max(rows[0][0] for rows in covered.values())
+    common_end = min(rows[-1][0] for rows in covered.values())
+    return covered if common_end - common_start >= ORIGIN_WINDOW_MS else None
+
+
+def stable_origin(window):
+    """Use distinct post-settle device timestamps, including yaw across +/-180 degrees."""
+    for name, rows in window.items():
+        times = [t for t, _ in rows]
+        if (len(times) < 2 or times[-1] - times[0] < ORIGIN_WINDOW_MS
+                or any(b - a > ORIGIN_MAX_GAP_MS[name] for a, b in zip(times, times[1:]))):
+            raise LoggingError(f"Insufficient fresh {name} samples for flight origin")
+    positions = [(d["stateEstimate.x"], d["stateEstimate.y"], d["stateEstimate.z"])
+                 for _, d in window["pos_vel"]]
+    yaw = [d["stateEstimate.yaw"] for _, d in window["attitude"]]
+    yaw = [yaw[0] + (v - yaw[0] + 180) % 360 - 180 for v in yaw]
+    xy_spread = max(math.hypot(x - a, y - b) for x, y, _ in positions for a, b, _ in positions)
+    z = [p[2] for p in positions]
+    stats = dict(xy_spread_m=xy_spread, z_spread_m=max(z) - min(z),
+                 yaw_spread_deg=max(yaw) - min(yaw))
+    if (xy_spread > ORIGIN_SPREAD_M or stats["z_spread_m"] > ORIGIN_SPREAD_M
+            or stats["yaw_spread_deg"] > ORIGIN_YAW_SPREAD_DEG):
+        raise LoggingError(f"Unstable flight origin (limits {ORIGIN_SPREAD_M} m XY/Z, "
+                           f"{ORIGIN_YAW_SPREAD_DEG} deg yaw): {stats}")
+    if "lighthouse" in window:
+        common = 0xffff
+        for _, sample in window["lighthouse"]:
+            common &= tracking_stations(sample)
+        if common.bit_count() < 2:
+            raise LoggingError("Two Lighthouse stations must be received, active, calibrated "
+                               f"and have valid geometry throughout preflight (mask={common:#06x})")
+        stats["station_mask"] = common
+    x, y, z = (sum(axis) / len(positions) for axis in zip(*positions))
+    return FlightOrigin(x, y, z, (sum(yaw) / len(yaw) + 180) % 360 - 180), stats
+
+
 class Recorder:
     """Serialize callbacks/close with a lock; fail on missing/stale/erroring blocks."""
 
-    def __init__(self, cf, directory, period_ms, origin=None, clock=time.monotonic, ranger=False, nis=False):
+    def __init__(self, cf, directory, period_ms, origin=None, clock=time.monotonic, ranger=False,
+                 nis=False, lighthouse=False):
         self.cf, self.directory, self.clock = cf, Path(directory), clock
         self.origin = clock() if origin is None else origin
         self.period_ms = period_ms
         self.log_blocks = {**LOG_BLOCKS, **(RANGER_LOG_BLOCK if ranger else {})}
         if nis:
             self.log_blocks.update(NIS_LOG_BLOCK)
+        if lighthouse:
+            self.log_blocks.update(LIGHTHOUSE_LOG_BLOCK)
+        self.origin_window = None
+        self.position_guard = None
         self.lock = threading.RLock()
         self.blocks = {}
         self.errors = []
@@ -98,7 +203,7 @@ class Recorder:
     def start(self):
         # Validate ALL TOC entries and open files before starting any block.
         for name, variables in self.log_blocks.items():
-            period = (max(100, self.period_ms) if name == "ranger" else
+            period = (max(100, self.period_ms) if name in ("ranger", "lighthouse") else
                       max(50, self.period_ms) if name == "status" else self.period_ms)
             config = LogConfig(name=name, period_in_ms=period)
             for variable in variables:
@@ -142,6 +247,12 @@ class Recorder:
                         block["writer"].writerow([timestamp, block["unwrapped_ms"],
                                                   now - self.origin, self.phase] + values)
                         block.update(last_ms=timestamp, last_host=now, latest=dict(data), count=block["count"] + 1)
+                        if self.origin_window is not None and name in self.origin_window:
+                            rows = self.origin_window[name]
+                            if not rows or rows[-1][0] != block["unwrapped_ms"]:
+                                rows.append((block["unwrapped_ms"], block["latest"]))
+                        if name == "pos_vel" and self.position_guard and not self.errors:
+                            self.position_guard(data)  # Any breach is latched by the callback error handler.
                         if now - block["flushed"] >= 1.0:
                             block["file"].flush()
                             block["flushed"] = now
@@ -199,6 +310,41 @@ class Recorder:
     def latest(self):
         with self.lock:
             return {key: value for b in self.blocks.values() for key, value in b["latest"].items()}
+
+    def measure_origin(self, lighthouse):
+        window = {"pos_vel": [], "attitude": []}
+        if lighthouse:
+            window["lighthouse"] = []
+        samples = None
+        def ready():
+            nonlocal samples
+            with self.lock:
+                now = self.clock()
+                if any(not rows or now - self.blocks[name]["last_host"] > ORIGIN_MAX_GAP_MS[name] / 1000
+                       for name, rows in window.items()):
+                    return False
+                samples = common_origin_window(window, "lighthouse" if lighthouse else "pos_vel")
+                return samples is not None
+        with self.lock:
+            self.origin_window = window
+        try:
+            wait_for(ready, 3, "Timed out collecting fresh flight-origin samples", self.check)
+        finally:
+            with self.lock:
+                self.origin_window = None
+        return stable_origin(samples)
+
+    def watch_position(self, guard):
+        with self.lock:
+            if guard:
+                guard(self.blocks["pos_vel"]["latest"])  # Catch a breach before arming as well.
+            self.position_guard = guard
+
+    def fresh_position(self):
+        with self.lock:
+            block = self.blocks["pos_vel"]
+            if block["count"] and self.clock() - block["last_host"] <= LOG_STALE_S:
+                return block["latest"]
 
     def close(self):
         # Already-dispatched callbacks see accepting=False under the same lock.
@@ -277,6 +423,67 @@ def parameter_snapshot(cf):
     return {group: dict(values) for group, values in cf.param.values.items()}
 
 
+def read_motion_disable(cf):
+    """Request a fresh device read. cflib get_value() alone just returns the cache."""
+    received = threading.Event()
+    replies = []
+    def updated(_, value):
+        replies.append(int(value))
+        received.set()
+    cf.param.add_update_callback(group="motion", name="disable", cb=updated)
+    try:
+        cf.param.request_param_update("motion.disable")
+        wait_for(received.is_set, 3, "Read-back timeout: motion.disable")
+        return replies[-1]
+    finally:
+        cf.param.remove_update_callback(group="motion", name="disable", cb=updated)
+
+
+def write_motion_disable(cf, value):
+    set_confirmed(cf, "motion.disable", value)
+    actual = read_motion_disable(cf)
+    if actual != value:
+        raise LoggingError(f"motion.disable requested {value}, device read-back {actual}")
+    return actual
+
+
+def lighthouse_setup(cf, parameters, args, log_blocks):
+    """Check everything this session needs in the device TOCs before changing any PARAM."""
+    required_params = ["deck.bcLighthouse4", "deck.bcFlow2", "lighthouse.method",
+                       "motion.disable", "stabilizer.estimator"]
+    if args.height:
+        required_params.extend(("stabilizer.controller", "kalman.resetEstimation"))
+    if args.ranger:
+        required_params.append("deck.bcMultiranger")
+    if args.nis:
+        required_params.extend("flowGate." + key for key in GATE_PARAMS)
+        required_params.extend(("firmware.revision0", "firmware.revision1"))
+    missing = ["PARAM " + name for name in required_params
+               if cf.param.toc.get_element_by_complete_name(name) is None]
+    missing.extend("LOG " + name for variables in log_blocks.values() for name in variables
+                   if cf.log.toc.get_element_by_complete_name(name) is None)
+    if missing:
+        raise LoggingError("--lighthouse missing device TOC fields: " + ", ".join(missing))
+
+    for key in ("bcLighthouse4", "bcFlow2"):
+        if int(parameters["deck"][key]) != 1:
+            raise LoggingError(f"--lighthouse requires deck.{key}=1")
+    settings = parameters["lighthouse"]
+    # Stock 6532d3876741 forwards valid measurements without a runtime switch.
+    forwarding_value = None
+    if cf.param.toc.get_element("lighthouse", "fwdToEstimator") is not None:
+        if settings.get("fwdToEstimator") not in ("1", 1):
+            raise LoggingError("--lighthouse requires lighthouse.fwdToEstimator=1")
+        forwarding_value = 1
+    if int(settings["method"]) not in (0, 1):
+        raise LoggingError("--lighthouse requires lighthouse.method 0 or 1")
+    if not args.height and int(parameters["stabilizer"]["estimator"]) != 2:
+        raise LoggingError("Static Lighthouse reference requires stabilizer.estimator=2 (EKF)")
+    return {"method": int(settings["method"]), "fwdToEstimator": forwarding_value,
+            "forwarding_mode": "always_forwarded_no_switch" if forwarding_value is None else "runtime_switch_enabled",
+            "reference": "stateEstimate.x/y/z (Lighthouse-aided onboard EKF)"}
+
+
 def nis_metadata(cf, parameters):
     missing = [name for name in NIS_LOG_BLOCK["nis"]
                if cf.log.toc.get_element_by_complete_name(name) is None]
@@ -298,14 +505,18 @@ class PositionFlight:
     interrupt falls back to stop/disarm; delivery cannot be guaranteed over a lost link.
     """
 
-    def __init__(self, cf, recorder, event, setpoint_writer, clock=time.monotonic, sleep=time.sleep):
+    def __init__(self, cf, recorder, event, setpoint_writer, clock=time.monotonic, sleep=time.sleep,
+                 *, origin=None, lighthouse=False):
         self.cf, self.recorder, self.event, self.writer = cf, recorder, event, setpoint_writer
         self.clock, self.sleep = clock, sleep
         self.z = 0.0
+        self.origin = origin or FlightOrigin()
+        self.x, self.y = self.origin.x_m, self.origin.y_m
+        self.lighthouse = lighthouse
         self.arm_attempted = False
         self.cleanup_errors = []
 
-    def stream(self, duration, z_at, phase, monitor=True):
+    def stream(self, duration, z_at, phase, monitor=True, forward_at=None):
         # Failed storage must not prevent a descent while the radio still works.
         try:
             self.event(phase)
@@ -321,9 +532,12 @@ class PositionFlight:
                 self.recorder.check()
             elapsed = min(duration, self.clock() - start)
             self.z = float(z_at(elapsed))
-            self.cf.commander.send_position_setpoint(0.0, 0.0, self.z, 0.0)
+            if forward_at is not None:
+                self.x, self.y = self.origin.xy_at(forward_at(elapsed))
+            command = (self.x, self.y, self.origin.z_m + self.z, self.origin.yaw_deg)
+            self.cf.commander.send_position_setpoint(*command)
             try:
-                self.writer.writerow([self.clock() - self.recorder.origin, phase, 0.0, 0.0, self.z, 0.0])
+                self.writer.writerow([self.clock() - self.recorder.origin, phase, *command])
             except Exception as error:
                 if monitor:
                     raise
@@ -351,8 +565,14 @@ class PositionFlight:
                 except BaseException as error:
                     self.cleanup_errors.append(f"stop/disarm: {type(error).__name__}: {error}")
 
-    def run(self, height, duration):
+    def run(self, height, duration, shuttle=None, speed=SHUTTLE_SPEED_M_S):
         completed = False
+        if self.lighthouse:
+            self.recorder.check()
+            if tracking_stations(self.recorder.latest()).bit_count() < 2:
+                raise LoggingError("Lost two-station Lighthouse tracking before arming")
+            length = shuttle[0] if shuttle else 0.0
+            self.recorder.watch_position(lambda d: self.origin.check_fence(d, length, height))
         try:
             self.arm_attempted = True  # Set BEFORE the request, including exceptions in that request.
             self.cf.supervisor.send_arming_request(True)
@@ -361,25 +581,57 @@ class PositionFlight:
             self.stream(height / VERTICAL_SPEED_M_S,
                         lambda t: min(height, VERTICAL_SPEED_M_S * t), "takeoff")
             self.stream(HOVER_SETTLE_S, lambda _: height, "settle")
-            self.stream(duration, lambda _: height, "hover")
+            if shuttle:
+                distance, trips = shuttle
+                leg_s = distance / speed
+                for _ in range(trips):
+                    self.stream(leg_s, lambda _: height, "shuttle_out",
+                                forward_at=lambda t: distance if t >= leg_s else t * speed)
+                    self.stream(TURN_HOLD_S, lambda _: height, "hold_far")
+                    self.stream(leg_s, lambda _: height, "shuttle_back",
+                                forward_at=lambda t: 0.0 if t >= leg_s else distance - t * speed)
+                    self.stream(TURN_HOLD_S, lambda _: height, "hold_home")
+            if duration:
+                self.stream(duration, lambda _: height, "hover")
             completed = True
         finally:
             if self.arm_attempted:
                 try:
+                    # Abort where the aircraft is. With stale logging, hold the last command XY.
+                    if self.lighthouse and not completed and self.z > 0:
+                        pose = self.recorder.fresh_position()
+                        if pose:
+                            self.x, self.y = pose["stateEstimate.x"], pose["stateEstimate.y"]
+                            measured_height = pose["stateEstimate.z"] - self.origin.z_m
+                            self.z = max(self.z, min(measured_height, height + FENCE_Z_MARGIN_M))
                     if self.z > 0:
                         self.land()
                 except BaseException as error:
                     self.cleanup_errors.append(f"landing: {type(error).__name__}: {error}")
                 finally:
                     self.stop_and_disarm()
+            if self.lighthouse:
+                self.recorder.watch_position(None)
         if completed and self.cleanup_errors:
             raise RuntimeError("Flight cleanup failed: " + "; ".join(self.cleanup_errors))
+
+
+def parse_shuttle(value):
+    try:
+        distance_text, trips_text = value.split(",")
+        distance, trips = float(distance_text), int(trips_text)
+    except ValueError:
+        raise argparse.ArgumentTypeError("--shuttle expects DIST,TRIPS, e.g. 1,5") from None
+    if not 0 < distance <= 1.5 or trips < 1:
+        raise argparse.ArgumentTypeError("shuttle requires 0 < DIST <= 1.5 m and positive integer TRIPS")
+    return distance, trips
 
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--name", required=True)
-    p.add_argument("--duration", type=float, default=30, help="Static or steady-hover seconds, excluding ramps/settle")
+    p.add_argument("--duration", type=float, default=30,
+                   help="Static or steady-hover seconds, excluding ramps/settle; may be 0 with --shuttle")
     p.add_argument("--height", type=float, default=0, help="0: log only; 0.1..1.0 m: fly from floor")
     p.add_argument("--known-height-m", type=float, help="Tape-measured floor-to-ToF-sensor height, static runs only")
     p.add_argument("--period", type=int, default=10, help="Log ms, multiple of 10; status uses at least 50 ms")
@@ -388,11 +640,22 @@ def parse_args(argv=None):
     p.add_argument("--metadata", type=Path, help="Session JSON, see session.example.json")
     p.add_argument("--ranger", action="store_true", help="Also log Multi-ranger front/back/left/right/up at at most 10 Hz")
     p.add_argument("--nis", action="store_true", help="Also record flow NIS, gate states and counters at --period")
+    p.add_argument("--lighthouse", action="store_true",
+                   help="Use a two-station Lighthouse reference and temporarily disable onboard Flow fusion")
+    p.add_argument("--shuttle", type=parse_shuttle, metavar="DIST,TRIPS",
+                   help="Fly out and back along the measured takeoff yaw after settling")
+    p.add_argument("--speed", type=float, default=SHUTTLE_SPEED_M_S, help="Shuttle speed in m/s (default 0.2)")
     p.add_argument("--out", type=Path, default=REAL_DIR / "data")
     args = p.parse_args(argv)
     if not re.fullmatch(r"[A-Za-z0-9_-]+", args.name):
         p.error("--name must contain only letters, digits, _ or -")
-    if not math.isfinite(args.duration) or not 0 < args.duration <= MAX_DURATION_S:
+    if args.shuttle and not args.height:
+        p.error("--shuttle requires --height between 0.1 and 1.0 m")
+    if not 0 < args.speed <= 0.3:
+        p.error("--speed must be positive and at most 0.3 m/s")
+    if args.shuttle and not math.isfinite(args.shuttle[0] / args.speed):
+        p.error("Shuttle leg duration must be finite")
+    if not (0 < args.duration <= MAX_DURATION_S or (args.shuttle and args.duration == 0)):
         p.error(f"--duration must be finite and in (0, {MAX_DURATION_S}] seconds")
     if not math.isfinite(args.height) or not (args.height == 0 or 0.1 <= args.height <= MAX_HEIGHT_M):
         p.error("--height must be 0 (no flight) or between 0.1 and 1.0 m")
@@ -423,10 +686,12 @@ def checked_metadata(path):
 def collect(cf, args, session, directory):
     """Own all file/link resources, including partial logging startup failures."""
     origin = time.monotonic()
-    recorder = Recorder(cf, directory, args.period, origin, ranger=args.ranger, nis=args.nis)
+    recorder = Recorder(cf, directory, args.period, origin, ranger=args.ranger, nis=args.nis,
+                        lighthouse=args.lighthouse)
+    arguments = {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()
+                 if (k not in ("nis", "lighthouse", "shuttle") or v) and (k != "speed" or args.shuttle)}
     meta = {"schema_version": 1, "start_time_utc": datetime.now(timezone.utc).isoformat(),
-            "arguments": {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()
-                          if k != "nis" or v},
+            "arguments": arguments,
             "session": session, "cflib_version": importlib.metadata.version("cflib"),
             "python_version": sys.version, "units": UNITS, "log_blocks": recorder.log_blocks,
             "logger_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -452,6 +717,7 @@ def collect(cf, args, session, directory):
         save_meta()
 
     flight, code = None, 0
+    restore_motion = None
     save_meta()
     try:
         connect(cf, args.uri)
@@ -459,21 +725,44 @@ def collect(cf, args, session, directory):
         meta["parameters_before"] = parameter_snapshot(cf)
         # Automatically recorded raw revision fields; do not invent a firmware SHA.
         meta["firmware_reported"] = meta["parameters_before"].get("firmware", {})
+        if args.lighthouse:
+            meta["lighthouse"] = lighthouse_setup(cf, meta["parameters_before"], args, recorder.log_blocks)
         if args.nis:
             meta.update(nis_metadata(cf, meta["parameters_before"]))
         if args.ranger and cf.param.get_value("deck.bcMultiranger") != "1":
             raise RuntimeError("--ranger requested but Multi-ranger deck not detected")
+        if args.lighthouse:
+            meta["units"] = {**UNITS,
+                "stateEstimate.x/y/z": "world m, Lighthouse-aided onboard EKF reference",
+                "lighthouse.x/y/z/delta": "world position / ray separation in m, crossing-beam method only",
+                "lighthouse.bs*": "uint16 channel bit masks: bit 0 = channel 1",
+            }
+            original = read_motion_disable(cf)
+            motion = {"previous": original, "requested": 1, "active_readback": None, "restored_readback": None}
+            meta["lighthouse"]["motion.disable"] = motion
+            save_meta()
+            restore_motion = original  # Set before writing: an interrupted write may still have reached the device.
+            motion["active_readback"] = write_motion_disable(cf, 1)
         if args.height:
-            if cf.param.get_value("deck.bcFlow2") != "1":
-                raise RuntimeError("Flow deck v2 not detected")
-            for key in ("initialX", "initialY", "initialZ", "initialYaw"):
-                if float(cf.param.get_value("kalman." + key)) != 0:
-                    raise RuntimeError("Floor-origin experiment requires kalman.initialX/Y/Z/Yaw = 0")
+            if not args.lighthouse:
+                if cf.param.get_value("deck.bcFlow2") != "1":
+                    raise RuntimeError("Flow deck v2 not detected")
+                for key in ("initialX", "initialY", "initialZ", "initialYaw"):
+                    if float(cf.param.get_value("kalman." + key)) != 0:
+                        raise RuntimeError("Floor-origin experiment requires kalman.initialX/Y/Z/Yaw = 0")
             set_confirmed(cf, "stabilizer.estimator", 2)
             set_confirmed(cf, "stabilizer.controller", 1)
         meta["parameters_active"] = parameter_snapshot(cf)
         recorder.start()
+        if args.lighthouse:
+            rate = sum(1000 / b["period_ms"] for b in recorder.blocks.values())
+            meta["requested_log_packets_s"] = rate
+            print(f"Requested {rate:g} log packets/s (downlink)", flush=True)
         recorder.wait_ready()
+        if args.lighthouse:
+            wait_for(lambda: tracking_stations(recorder.latest()).bit_count() >= 2, LOG_START_TIMEOUT_S,
+                     "Two Lighthouse stations must be received, active, calibrated and have valid geometry",
+                     recorder.check)
         if args.height:
             event("estimator_reset")
             cf.param.set_value("kalman.resetEstimation", "1")
@@ -482,8 +771,15 @@ def collect(cf, args, session, directory):
             # A fixed settling period, NOT a claim of EKF covariance convergence.
             until = time.monotonic() + 2
             wait_for(lambda: time.monotonic() >= until, 3, "EKF settling wait", recorder.check)
+            flight_origin = None
+            if args.lighthouse or args.shuttle:
+                event("measure_origin")
+                flight_origin, stats = recorder.measure_origin(args.lighthouse)
+                meta["flight_origin"] = asdict(flight_origin)
+                meta["origin_stability"] = stats
+                save_meta()  # Persist the actual reference before any arm request.
             data = recorder.latest()
-            if not (0 < data["range.zrange"] < 200 and 0 <= data["stateEstimate.z"] < 0.2):
+            if not (0 < data["range.zrange"] < 200 and (args.lighthouse or 0 <= data["stateEstimate.z"] < 0.2)):
                 raise RuntimeError("Takeoff must start on the floor with a valid near-ground ToF reading")
             if int(data["motion.motion"]) != 0xB0:
                 raise RuntimeError("Flow status is invalid at preflight")
@@ -494,8 +790,8 @@ def collect(cf, args, session, directory):
             with (directory / "setpoints.csv").open("w", newline="") as file:
                 writer = csv.writer(file)
                 writer.writerow(["host_elapsed_s", "phase", "x_m", "y_m", "z_m", "yaw_deg"])
-                flight = PositionFlight(cf, recorder, event, writer)
-                flight.run(args.height, args.duration)
+                flight = PositionFlight(cf, recorder, event, writer, origin=flight_origin, lighthouse=args.lighthouse)
+                flight.run(args.height, args.duration, args.shuttle, args.speed)
             event("post_landing")
             end = time.monotonic() + 1
             wait_for(lambda: time.monotonic() >= end, 2, "Post-landing logging", recorder.check)
@@ -516,7 +812,22 @@ def collect(cf, args, session, directory):
         meta["status"], meta["error"], code = "failed", f"{type(error).__name__}: {error}", 1
         print(meta["error"], file=sys.stderr)
     finally:
-        recorder.close()
+        try:
+            recorder.close()
+        except BaseException as error:
+            recorder.errors.append(f"recorder cleanup: {type(error).__name__}: {error}")
+            if isinstance(error, KeyboardInterrupt) and code == 0:
+                meta["status"], code = "interrupted", 130
+        if restore_motion is not None:
+            try:
+                if not cf.is_connected():
+                    raise ConnectionError("Link lost before motion.disable could be restored")
+                motion["restored_readback"] = write_motion_disable(cf, restore_motion)
+            except BaseException as error:
+                motion["restore_error"] = f"{type(error).__name__}: {error}"
+                print(f"Check motion.disable on the device: restore unconfirmed ({error})", file=sys.stderr)
+                if code == 0:
+                    meta["status"], code = ("interrupted", 130) if isinstance(error, KeyboardInterrupt) else ("failed", 1)
         meta["logging"] = recorder.summary()
         meta["logging_errors"] = recorder.errors
         meta["flight_cleanup_errors"] = flight.cleanup_errors if flight else []

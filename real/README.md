@@ -138,9 +138,10 @@ Logger 保留 raw readings，不会把 invalid 替换为零或删掉。分别计
 | `status.csv` | `kalman.varPX/varPY/varPZ`、`supervisor.info` | 14 bytes | 20 Hz |
 | `ranger.csv`，仅 `--ranger` | `range.front/back/left/right/up` | 10 bytes | 10 Hz；period 为 `max(100, --period)` ms |
 | `nis.csv`，仅 `--nis` | `kalman_pred.nisX/nisY`、`flowGate.stateX/stateY`、`rejX/rejY`、`entryX/entryY` | 26 bytes | 100 Hz，跟随 `--period` |
+| `lighthouse.csv`，仅 `--lighthouse` | `lighthouse.x/y/z/delta`（4 × float32），`bsReceive/bsActive/bsGeoVal/bsCalVal/bsCalCon`（5 × uint16） | 26 bytes | 最高 10 Hz，period 为 `max(100, --period)` ms |
 | `setpoints.csv`，仅 flight | host time、phase、commanded XYZ、yaw | host 文件，不占 log block | nominal 50 Hz |
 
-前五个 CSV 都有 `timestamp_ms`、`timestamp_unwrapped_ms`、`host_elapsed_s`、`phase`。`--period` 控制前四个 block；status period 为 `max(50, --period)` ms。100 Hz 是 logging 请求速率，不是每个 sensor 的独立 sample rate，也不是保证到包率。默认共约 420 个 log packets/s；是否有足够 radio bandwidth 必须看实际 counts/gaps。可以先用 static run 检查，必要时用 `--period 20` 降低 logging load。
+前五个 CSV 都有 `timestamp_ms`、`timestamp_unwrapped_ms`、`host_elapsed_s`、`phase`。`--period` 控制前四个 block，status period 为 `max(50, --period)` ms。默认请求约 420 个 log packets/s。用 motors-off recording 的 packet counts 和 timestamp gaps 检查实际到包率。Flow replay 使用默认 `--period 10`，以 100 Hz 请求 raw Flow。
 
 可选的 `ranger.csv` 使用相同 timestamp/phase 列，默认额外请求 10 packets/s。Multi-ranger driver 的 nominal task period 是 100 ms，实际 data-ready 等待可能使它更慢；log packet 时间仍不是 sensor acquisition 时间。
 
@@ -150,7 +151,7 @@ Logger 保留 raw readings，不会把 invalid 替换为零或删掉。分别计
 
 `meta.json` 中 counts 和 gaps 用于发现 logging 问题，**不是精确的 sensor dropout counter**。CSV 约每秒 flush，正常退出时 close；进程强杀、掉电或 storage failure 仍可能丢数据，不能承诺绝不丢失。
 
-### Flight
+### 原有的 static / hover 模式
 
 `--height 0`，默认值，只读 logging，不 arm、不 reset、不改 PID/EKF 参数，也不发送 motor/position command；若观察到 motor PWM 非零，static run 标记 failed。
 
@@ -163,6 +164,35 @@ control mode 与 sim 的 XYZ position + absolute yaw 一致；**trajectory 不�
 第一次 Ctrl+C、一般 exception 或 logging failure 会尝试执行有限时长的 descent，然后 stop/disarm，且 run 标记 interrupted/failed。landing 再次中断或 link loss 会转入 stop/disarm best effort。**radio 断开时不能保证 command 送达，stop/disarm 也可能让空中的 drone 直接落下。Ctrl+C 不是独立可靠的 emergency stop。** 不使用 Ctrl+Z 暂停一个正在发送 flight command 的进程。
 
 来源：[cflib commander API](https://www.bitcraze.io/documentation/repository/crazyflie-lib-python/master/api/cflib/crazyflie/commander/)、本机 cflib 0.1.34 source、[firmware position decoder](../src/modules/src/crtp_commander_generic.c)、[supervisor bitfield](../src/modules/src/supervisor.c)。已记录的 run-time PID/EKF selection 会保留到后续修改或 power cycle，logger 不自动恢复先前 controller。
+
+### Lighthouse reference 和 shuttle
+
+`--lighthouse` 用于 Lighthouse deck（顶部）+ Flow deck v2（底部）和两台 base station。给 offline Flow-only EKF 作位置参考的列是 **`pos_vel.csv` 的 `stateEstimate.x/y/z`**。这是融合 Lighthouse、IMU 和 downward ToF 的 onboard EKF estimate，与 offline EKF 共享部分输入。gate off/on 在 offline replay 时选择。
+
+**Firmware compatibility。** Logger 在写入任何 PARAM 前检查设备的 PARAM 和 LOG TOC，静态采集（`--height 0`）也一样。缺少的必需字段会一起列在 stderr 和 `meta.json` 的 `error` 中。
+
+Stock revision `6532d3876741` 没有 `lighthouse.fwdToEstimator`。默认 build 会把有效的 crossing-beam position 或 sweep angles 直接送入 estimator。仅在专门启用 `CONFIG_DECK_LIGHTHOUSE_AS_GROUNDTRUTH` 的 custom build 中才会跳过入队。后续 revision `c5982a8e` 增加了 runtime switch。[旧版 position 入队](https://github.com/bitcraze/crazyflie-firmware/blob/6532d3876741c3e14fb3fd2626d506d06bb1d147/src/modules/src/lighthouse/lighthouse_position_est.c#L270-L279) · [旧版 sweep 入队](https://github.com/bitcraze/crazyflie-firmware/blob/6532d3876741c3e14fb3fd2626d506d06bb1d147/src/modules/src/lighthouse/lighthouse_position_est.c#L348-L359) · [build option 默认值](https://github.com/bitcraze/crazyflie-firmware/blob/6532d3876741c3e14fb3fd2626d506d06bb1d147/src/deck/drivers/src/Kconfig#L261-L269) · [新增 switch 的 commit](https://github.com/bitcraze/crazyflie-firmware/commit/c5982a8e62e066054162b49879fe2a5244e4af91)
+
+| 检查或字段 | 实际含义 |
+|---|---|
+| Deck 与 fusion | 要求 `deck.bcLighthouse4=1` 和 `deck.bcFlow2=1`。设备有 forwarding switch 时要求其值为 1，在 `meta.json → lighthouse` 记录 `forwarding_mode=runtime_switch_enabled` 和 `fwdToEstimator=1`。设备没有 switch 时按旧版 stock 行为采集，记录 `forwarding_mode=always_forwarded_no_switch` 和 `fwdToEstimator=null`。两种情况都记录 `lighthouse.method`。 |
+| Raw Flow | 读取原 `motion.disable`，写 1，并单独从设备读回。Flow deck 继续更新 `motion.deltaX/deltaY/motion`，停止向 EKF enqueue Flow。退出时尝试恢复原值并再次读回。三项值和恢复失败原因写入 `meta.json → lighthouse → motion.disable`。 |
+| 两台 station | `bsReceive` 表示收到 sweep，`bsActive` 表示收到且具备可用 geometry/calibration，`bsGeoVal`、`bsCalVal` 分别标记有效配置。四个 mask 要求至少有两个共同 bit。bit 0 对应 channel 1。`bsCalCon` 记录曾通过无线收到 calibration。接收和 active mask 每约 200 ms 更新。 |
+| `lighthouse.x/y/z/delta` | 只有 `method=0`（crossing beams）更新 position，`delta` 是 rays 间距的平均值（m）。在 `method=1`（sweep angles）下这四列可能为 0 或保留旧值。两种 method 都使用上面的 `stateEstimate.*` 作为 reference。 |
+
+以上字段来自 repo 的 [Lighthouse deck](../src/deck/drivers/src/lighthouse.c)、[Flow driver](../src/deck/drivers/src/flowdeck_v1v2.c)、[station 状态和 method 选择](../src/modules/src/lighthouse/lighthouse_core.c) 和 [Lighthouse position/logs](../src/modules/src/lighthouse/lighthouse_position_est.c)。
+
+- **起飞点。** Flight 先 reset EKF，settle 2 s。随后 position、attitude 和 Lighthouse 三个 block 必须共同覆盖至少 1 s。只有首尾 Lighthouse packet 之间的 pose samples 用于算起飞点。对 10 Hz Lighthouse，连续两个 device timestamps 的间隔最多 150 ms，做判断时最新 packet 的 host age 也最多 150 ms。Position 和 attitude 的两项上限都是 100 ms。窗口内每一个 Lighthouse packet 都必须保有相同的至少两台可用 station。XY 任意两点距离最多 5 cm，Z 总跨度最多 5 cm，yaw 总跨度最多 5°。均值写入 `meta.json → flight_origin`（world m、yaw deg，处理 ±180°），实测跨度写入 `origin_stability`。保留原有 near-ground ToF、Flow、upright 和 motors-off 检查。Lighthouse 的起飞地板可以在任意 world Z，所有高度相对于测得的起飞 Z。
+- **Shuttle。** `--shuttle DIST,TRIPS` 在空中 settle 3 s 后沿起飞 yaw 匀速前进 DIST m，停 0.5 s，再返回起点，停 0.5 s。这算一趟。最后 hover `--duration` 秒（shuttle 时可为 0）再降落。`0 < DIST ≤ 1.5` m，`0 < --speed ≤ 0.3` m/s（默认 0.2），`--height` 为 0.1–1.0 m。`setpoints.csv` 每行都是实际发送的 **world X/Y/Z 和 absolute yaw**。单独用 `--shuttle` 也会测起飞位姿，沿用原有的 floor-origin preflight。
+- **Geofence。** `--lighthouse` 用每个新 position packet 检查以起飞 yaw 为轴的 box。前向范围为 −0.5 至 DIST+0.5 m（hover 时 DIST=0），侧向 ±0.5 m，竖直 −0.3 至 height+0.3 m。越界、Ctrl+C 或 logging error 在空中触发 descent 时，固定最近 0.5 s 内收到的 `pos_vel` 的 estimated XY。位置已 stale 时沿用最后的 commanded XY。降落全程保持选定的 XY，最后执行 stop/disarm。
+- **Radio load。** 仅加 `--lighthouse` 时，默认 10 ms 请求 **430 个 log packets/s**（四个 100 Hz block、20 Hz status、10 Hz Lighthouse）。flight 另有约 50 个 setpoint packets/s 上行。**对 replay 数据，`--period 20` 只作为最后手段。** 此时请求 230 个 log packets/s，Flow 和 IMU 都降至 50 Hz。即使 radio 完美到包，每秒最多记录 50 个 Flow snapshots，nominal 100 Hz 的 Flow updates 约有一半无法用于 replay。先检查 `meta.json → logging` 的 counts/gaps。
+
+两条命令都使用默认 10 ms period。第一条采集 motors-off 数据。第二条会实际起飞到相对高度 0.6 m，沿起飞 yaw 前进 1 m 再返回，共 5 趟。将 session metadata 的 deck 配置填写为本次实物。
+
+```bash
+python3 real/log_flight.py --name lh_static --lighthouse --duration 5
+python3 real/log_flight.py --name lh_shuttle --lighthouse --height 0.6 --shuttle 1,5 --speed 0.2 --duration 0 --metadata real/session.json
+```
 
 ## 6. 分析前必须区分的量
 
@@ -240,7 +270,7 @@ Tests 覆盖 native TOC packet size、第一包缺失、async error、stale data
 |---|---|
 | `Resource busy` / radio unavailable | 关闭 cfclient 和其他 radio client；核对 udev/group/实际 URI |
 | Missing TOC variable | 核对机载 firmware 和 log TOC；保存 error，不直接删掉 required variable 后飞 |
-| 第一包 timeout / stale logging | 先 static 检查 link 和 bandwidth；查看 meta counts/gaps，可尝试 `--period 20` |
+| 第一包 timeout / stale logging | 先 static 检查 link 和 bandwidth，查看 meta counts/gaps。Replay 采集优先保留 10 ms，20 ms 会漏掉约一半 Flow updates。 |
 | Flow status invalid | 检查光照、纹理、距离和视线；不要把 invalid reading 归入纯 sensor noise |
 | Flight selection/initial-state 检查失败 | 核对 PID/EKF 与 `kalman.initial*`；不同实验坐标原点需要显式设计 |
 | `meta.json` 的 status 是 failed/interrupted | 保留该 run 用于诊断，不按正常 completed baseline 使用；查看 error/cleanup errors |
