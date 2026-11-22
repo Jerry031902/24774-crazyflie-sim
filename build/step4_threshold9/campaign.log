@@ -1,0 +1,160 @@
+DONE 1/80 7 stock off: stable=True duration=62.0 contacts=0
+BEGIN 7 gated off
+DONE 2/80 7 gated off: stable=True duration=62.0 contacts=0
+BEGIN 7 gated spike20
+DONE 3/80 7 gated spike20: stable=True duration=62.0 contacts=0
+BEGIN 17 stock off
+DONE 4/80 17 stock off: stable=True duration=62.0 contacts=0
+BEGIN 17 gated off
+DONE 5/80 17 gated off: stable=True duration=62.0 contacts=0
+BEGIN 27 stock off
+DONE 6/80 27 stock off: stable=False duration=62.0 contacts=0
+BEGIN 27 gated off
+DONE 7/80 27 gated off: stable=False duration=62.0 contacts=0
+BEGIN 37 stock off
+DONE 8/80 37 stock off: stable=False duration=62.0 contacts=0
+BEGIN 37 gated off
+DONE 9/80 37 gated off: stable=False duration=62.0 contacts=0
+BEGIN 47 stock off
+DONE 10/80 47 stock off: stable=True duration=62.0 contacts=0
+BEGIN 47 gated off
+DONE 11/80 47 gated off: stable=True duration=62.0 contacts=0
+BEGIN 7 stock spike5
+DONE 12/80 7 stock spike5: stable=True duration=62.0 contacts=0
+BEGIN 7 gated spike5
+DONE 13/80 7 gated spike5: stable=True duration=62.0 contacts=0
+BEGIN 17 stock spike5
+DONE 14/80 17 stock spike5: stable=True duration=62.0 contacts=0
+BEGIN 17 gated spike5
+DONE 15/80 17 gated spike5: stable=True duration=62.0 contacts=0
+BEGIN 27 stock spike5
+DONE 16/80 27 stock spike5: stable=False duration=62.0 contacts=0
+BEGIN 27 gated spike5
+DONE 17/80 27 gated spike5: stable=False duration=62.0 contacts=0
+BEGIN 37 stock spike5
+DONE 18/80 37 stock spike5: stable=False duration=62.0 contacts=0
+BEGIN 37 gated spike5
+DONE 19/80 37 gated spike5: stable=False duration=62.0 contacts=0
+BEGIN 47 stock spike5
+DONE 20/80 47 stock spike5: stable=True duration=62.0 contacts=0
+BEGIN 47 gated spike5
+DONE 21/80 47 gated spike5: stable=True duration=62.0 contacts=0
+BEGIN 7 stock spike10
+DONE 22/80 7 stock spike10: stable=True duration=62.0 contacts=0
+BEGIN 7 gated spike10
+DONE 23/80 7 gated spike10: stable=True duration=62.0 contacts=0
+BEGIN 17 stock spike10
+DONE 24/80 17 stock spike10: stable=True duration=62.0 contacts=0
+BEGIN 17 gated spike10
+DONE 25/80 17 gated spike10: stable=True duration=62.0 contacts=0
+BEGIN 27 stock spike10
+DONE 26/80 27 stock spike10: stable=False duration=62.0 contacts=0
+BEGIN 27 gated spike10
+DONE 27/80 27 gated spike10: stable=False duration=62.0 contacts=0
+BEGIN 37 stock spike10
+DONE 28/80 37 stock spike10: stable=False duration=62.0 contacts=0
+BEGIN 37 gated spike10
+DONE 29/80 37 gated spike10: stable=False duration=62.0 contacts=0
+BEGIN 47 stock spike10
+DONE 30/80 47 stock spike10: stable=False duration=62.0 contacts=0
+BEGIN 47 gated spike10
+DONE 31/80 47 gated spike10: stable=True duration=62.0 contacts=0
+BEGIN 7 stock spike20
+DONE 32/80 7 stock spike20: stable=False duration=62.0 contacts=0
+BEGIN 17 stock spike20
+DONE 33/80 17 stock spike20: stable=True duration=62.0 contacts=0
+BEGIN 17 gated spike20
+DONE 34/80 17 gated spike20: stable=True duration=62.0 contacts=0
+BEGIN 27 stock spike20
+DONE 35/80 27 stock spike20: stable=True duration=62.0 contacts=0
+BEGIN 27 gated spike20
+DONE 36/80 27 gated spike20: stable=False duration=62.0 contacts=0
+BEGIN 37 stock spike20
+DONE 37/80 37 stock spike20: stable=False duration=62.0 contacts=0
+BEGIN 37 gated spike20
+DONE 38/80 37 gated spike20: stable=False duration=62.0 contacts=0
+BEGIN 47 stock spike20
+DONE 39/80 47 stock spike20: stable=False duration=62.0 contacts=0
+BEGIN 47 gated spike20
+DONE 40/80 47 gated spike20: stable=True duration=62.0 contacts=0
+BEGIN 7 stock spike50
+DONE 41/80 7 stock spike50: stable=False duration=62.0 contacts=0
+BEGIN 7 gated spike50
+DONE 42/80 7 gated spike50: stable=True duration=62.0 contacts=0
+BEGIN 17 stock spike50
+DONE 43/80 17 stock spike50: stable=False duration=62.0 contacts=0
+BEGIN 17 gated spike50
+DONE 44/80 17 gated spike50: stable=True duration=62.0 contacts=0
+BEGIN 27 stock spike50
+DONE 45/80 27 stock spike50: stable=True duration=62.0 contacts=0
+BEGIN 27 gated spike50
+DONE 46/80 27 gated spike50: stable=False duration=62.0 contacts=0
+BEGIN 37 stock spike50
+DONE 47/80 37 stock spike50: stable=False duration=62.0 contacts=0
+BEGIN 37 gated spike50
+DONE 48/80 37 gated spike50: stable=False duration=62.0 contacts=0
+BEGIN 47 stock spike50
+DONE 49/80 47 stock spike50: stable=False duration=62.0 contacts=0
+BEGIN 47 gated spike50
+DONE 50/80 47 gated spike50: stable=True duration=62.0 contacts=0
+BEGIN 7 stock zero
+DONE 51/80 7 stock zero: stable=False duration=62.0 contacts=0
+BEGIN 7 gated zero
+DONE 52/80 7 gated zero: stable=False duration=31.295 contacts=0
+BEGIN 17 stock zero
+DONE 53/80 17 stock zero: stable=False duration=62.0 contacts=0
+BEGIN 17 gated zero
+DONE 54/80 17 gated zero: stable=False duration=31.418 contacts=0
+BEGIN 27 stock zero
+DONE 55/80 27 stock zero: stable=False duration=62.0 contacts=0
+BEGIN 27 gated zero
+DONE 56/80 27 gated zero: stable=False duration=31.609 contacts=0
+BEGIN 37 stock zero
+DONE 57/80 37 stock zero: stable=False duration=31.101 contacts=0
+BEGIN 37 gated zero
+DONE 58/80 37 gated zero: stable=False duration=30.903000000000002 contacts=0
+BEGIN 47 stock zero
+DONE 59/80 47 stock zero: stable=False duration=31.753 contacts=0
+BEGIN 47 gated zero
+DONE 60/80 47 gated zero: stable=False duration=31.119 contacts=0
+BEGIN 7 stock dropout
+DONE 61/80 7 stock dropout: stable=False duration=62.0 contacts=0
+BEGIN 7 gated dropout
+DONE 62/80 7 gated dropout: stable=False duration=62.0 contacts=0
+BEGIN 17 stock dropout
+DONE 63/80 17 stock dropout: stable=True duration=62.0 contacts=0
+BEGIN 17 gated dropout
+DONE 64/80 17 gated dropout: stable=True duration=62.0 contacts=0
+BEGIN 27 stock dropout
+DONE 65/80 27 stock dropout: stable=False duration=62.0 contacts=0
+BEGIN 27 gated dropout
+DONE 66/80 27 gated dropout: stable=False duration=62.0 contacts=0
+BEGIN 37 stock dropout
+DONE 67/80 37 stock dropout: stable=False duration=62.0 contacts=0
+BEGIN 37 gated dropout
+DONE 68/80 37 gated dropout: stable=False duration=62.0 contacts=0
+BEGIN 47 stock dropout
+DONE 69/80 47 stock dropout: stable=True duration=62.0 contacts=0
+BEGIN 47 gated dropout
+DONE 70/80 47 gated dropout: stable=True duration=62.0 contacts=0
+BEGIN 7 stock scale05
+DONE 71/80 7 stock scale05: stable=False duration=62.0 contacts=0
+BEGIN 7 gated scale05
+DONE 72/80 7 gated scale05: stable=False duration=62.0 contacts=0
+BEGIN 17 stock scale05
+DONE 73/80 17 stock scale05: stable=False duration=62.0 contacts=0
+BEGIN 17 gated scale05
+DONE 74/80 17 gated scale05: stable=False duration=62.0 contacts=0
+BEGIN 27 stock scale05
+DONE 75/80 27 stock scale05: stable=False duration=62.0 contacts=0
+BEGIN 27 gated scale05
+DONE 76/80 27 gated scale05: stable=False duration=62.0 contacts=0
+BEGIN 37 stock scale05
+DONE 77/80 37 stock scale05: stable=False duration=62.0 contacts=0
+BEGIN 37 gated scale05
+DONE 78/80 37 gated scale05: stable=False duration=62.0 contacts=0
+BEGIN 47 stock scale05
+DONE 79/80 47 stock scale05: stable=False duration=62.0 contacts=0
+BEGIN 47 gated scale05
+DONE 80/80 47 gated scale05: stable=False duration=62.0 contacts=0
+THRESHOLD_9_CAMPAIGN_COMPLETE; no threshold 6.63 runs

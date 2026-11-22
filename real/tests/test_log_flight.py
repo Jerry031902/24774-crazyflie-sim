@@ -25,7 +25,15 @@ class Clock:
         self.now += max(seconds, 1e-6)
 
 
-def fake_cf(missing=None):
+NIS_TYPES = {
+    "kalman_pred.nisX": "float", "kalman_pred.nisY": "float",
+    "flowGate.stateX": "uint8_t", "flowGate.stateY": "uint8_t",
+    "flowGate.rejX": "uint32_t", "flowGate.rejY": "uint32_t",
+    "flowGate.entryX": "uint32_t", "flowGate.entryY": "uint32_t",
+}
+
+
+def fake_cf(missing=None, nis=False):
     cf = SimpleNamespace(link=object(), connection_lost=Caller(), disconnected=Caller(),
                          commander=Mock(), supervisor=Mock(), close_link=Mock(), is_connected=lambda: True,
                          platform=SimpleNamespace(get_protocol_version=lambda: 11),
@@ -42,6 +50,10 @@ def fake_cf(missing=None):
         elif name in ("motion.motion", "motion.squal", "motion.outlierCount"):
             ctype = "uint8_t"
         elements[name] = SimpleNamespace(ctype=ctype)
+    if nis:
+        elements.update({name: SimpleNamespace(ctype=ctype) for name, ctype in NIS_TYPES.items()})
+        cf.param.values.update(firmware={"revision0": "18", "revision1": "1", "modified": "0"},
+                               flowGate={"enable": "2", "threshold": "8.5", "maxReject": "12", "recoverK": "9"})
     cf.log.toc = SimpleNamespace(get_element_by_complete_name=lambda name: None if name == missing else elements.get(name))
     return cf
 
@@ -139,6 +151,26 @@ class LoggingTests(unittest.TestCase):
         emit(config, 1010, {"acc.x": float("nan")})
         with self.assertRaisesRegex(app.LoggingError, "nonfinite"):
             self.rec.check()
+
+    def test_nis_startup_nan_is_preserved_until_each_axis_has_a_value(self):
+        rec = app.Recorder(fake_cf(nis=True), Path(self.temp.name), 10, clock=self.clock, nis=True)
+        self.addCleanup(rec.close)
+        nan = float("nan")
+        self.starts.side_effect = lambda config: emit(config, overrides=(
+            {"kalman_pred.nisX": nan, "kalman_pred.nisY": nan} if config.name == "nis" else {}))
+        rec.start()
+        rec.wait_ready()
+        config = rec.blocks["nis"]["config"]
+        emit(config, 1010, {"kalman_pred.nisX": 1.25, "kalman_pred.nisY": nan})
+        rec.check()
+        emit(config, 1020, {"kalman_pred.nisX": nan, "kalman_pred.nisY": 2.0})
+        with self.assertRaisesRegex(app.LoggingError, "nonfinite"):
+            rec.check()
+        rec.close()
+        with (Path(self.temp.name) / "nis.csv").open() as file:
+            rows = list(csv.DictReader(file))
+        self.assertEqual([(r["kalman_pred.nisX"], r["kalman_pred.nisY"]) for r in rows],
+                         [("nan", "nan"), ("1.25", "nan")])
 
     def test_late_callback_after_close_cannot_write_to_closed_file(self):
         self.rec.start()
@@ -282,10 +314,67 @@ class SessionTests(unittest.TestCase):
             meta = json.loads((Path(directory) / "meta.json").read_text())
             self.assertEqual(meta["status"], "completed")
             self.assertEqual(meta["firmware_reported"], {"revision0": "123"})
+            self.assertEqual(meta["log_blocks"], app.LOG_BLOCKS)
+            self.assertNotIn("nis", meta["arguments"])
+            self.assertNotIn("flowGate", meta)
+            self.assertNotIn("firmware_revision", meta)
+            self.assertFalse((Path(directory) / "nis.csv").exists())
         cf.supervisor.send_arming_request.assert_not_called()
         cf.commander.send_position_setpoint.assert_not_called()
         cf.commander.send_stop_setpoint.assert_not_called()
         cf.close_link.assert_called_once()
+
+    def test_nis_block_and_on_device_metadata_with_optional_ranger(self):
+        cf = fake_cf(nis=True)
+        cf.param.get_value = Mock(return_value="1")
+        args = app.parse_args(["--name", "static", "--nis", "--ranger", "--period", "20", "--duration", "0.01"])
+        sample = dict(zip(NIS_TYPES, (2.25, 7.5, 1, 0, 42, 3, 4, 1)))
+        def start(config):
+            emit(config, overrides=sample if config.name == "nis" else {})
+        with tempfile.TemporaryDirectory() as directory, patch.object(app, "connect"), \
+                patch.object(app.LogConfig, "start", autospec=True, side_effect=start), \
+                patch.object(app.LogConfig, "stop"), patch.object(app.LogConfig, "delete"):
+            path = Path(directory)
+            self.assertEqual(app.collect(cf, args, {}, path), 0)
+            meta = json.loads((path / "meta.json").read_text())
+            self.assertEqual(meta["log_blocks"], {**app.LOG_BLOCKS, **app.RANGER_LOG_BLOCK, "nis": list(NIS_TYPES)})
+            self.assertEqual(meta["logging"]["nis"]["types"], NIS_TYPES)
+            self.assertEqual(meta["logging"]["nis"]["payload_bytes"], 26)
+            self.assertLessEqual(26, app.LogConfig.MAX_LEN)
+            self.assertEqual(meta["logging"]["nis"]["period_ms"], 20)
+            self.assertEqual(meta["flowGate"], cf.param.values["flowGate"])
+            self.assertEqual(meta["firmware_revision"], "000000120001")
+            self.assertEqual(meta["firmware_reported"], cf.param.values["firmware"])
+            with (path / "nis.csv").open() as file:
+                reader = csv.DictReader(file)
+                self.assertEqual(reader.fieldnames[4:], list(NIS_TYPES))
+                row, = reader
+                self.assertEqual({k: row[k] for k in sample}, {k: str(v) for k, v in sample.items()})
+        cf.supervisor.send_arming_request.assert_not_called()
+
+    def test_nis_missing_log_param_or_revision_fails_before_flight_setup(self):
+        args = app.parse_args(["--name", "bad", "--height", "0.1", "--nis"])
+        for missing in ("stock", "flowGate.entryY", "flowGate.recoverK", "firmware.revision1"):
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as directory, \
+                    patch.object(app, "connect"), patch.object(app.LogConfig, "start") as start, \
+                    patch("sys.stderr", new_callable=io.StringIO) as error:
+                cf = fake_cf(missing=missing, nis=missing != "stock")
+                if missing in ("flowGate.recoverK", "firmware.revision1"):
+                    group, key = missing.split(".")
+                    del cf.param.values[group][key]
+                cf.param.set_value = Mock()
+                path = Path(directory)
+                self.assertEqual(app.collect(cf, args, {}, path), 1)
+                meta = json.loads((path / "meta.json").read_text())
+                self.assertEqual(meta["status"], "failed")
+                self.assertIn("--nis", meta["error"])
+                self.assertIn("kalman_pred.nisX" if missing == "stock" else missing, meta["error"])
+                self.assertIn(meta["error"], error.getvalue())
+                start.assert_not_called()
+                cf.param.set_value.assert_not_called()
+                cf.commander.send_position_setpoint.assert_not_called()
+                cf.supervisor.send_arming_request.assert_not_called()
+                cf.close_link.assert_called_once()
 
     def test_partial_start_failure_persists_failure_metadata_and_closes_link(self):
         cf = fake_cf(missing="motion.shutter")

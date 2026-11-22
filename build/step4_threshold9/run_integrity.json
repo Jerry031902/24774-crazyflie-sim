@@ -1,0 +1,129 @@
+{
+  "runs": 80,
+  "paired_seeds": 40,
+  "thresholds": [
+    9.0
+  ],
+  "maxReject": 10,
+  "mass_kg": 0.033,
+  "recorded_noise": {
+    "noise": true,
+    "deck": "Flow v2 / VL53L1X",
+    "delays_ms": {
+      "gyro": 0,
+      "acc": 0,
+      "flow": 0,
+      "tof": 0
+    },
+    "accel_noise_std_G": [
+      0.005164569241030171,
+      0.003921966115368776,
+      0.005358725979414763
+    ],
+    "gyro_noise_std_deg_s": [
+      0.2739413300825286,
+      0.40610600687673093,
+      0.3027772595649
+    ],
+    "accel_filtered_std_G": [
+      0.00133,
+      0.00101,
+      0.00138
+    ],
+    "gyro_filtered_std_deg_s": [
+      0.114,
+      0.169,
+      0.126
+    ],
+    "flow_noise_std_counts": 2.0,
+    "tof_noise_std_m": 0.00206,
+    "imu_hz": 1000,
+    "flow_nominal_hz": 100.0,
+    "tof_nominal_hz": 40.0
+  },
+  "metadata_all_match": true,
+  "contacts_all_zero": true,
+  "completed_62s": 73,
+  "truncated_runs": [
+    {
+      "case": "zero",
+      "seed": 7,
+      "mode": "gated",
+      "duration_s": 31.295,
+      "reason": "AssertionError('Flight left the test arena')"
+    },
+    {
+      "case": "zero",
+      "seed": 17,
+      "mode": "gated",
+      "duration_s": 31.418,
+      "reason": "AssertionError('Flight left the test arena')"
+    },
+    {
+      "case": "zero",
+      "seed": 27,
+      "mode": "gated",
+      "duration_s": 31.609,
+      "reason": "AssertionError('Flight left the test arena')"
+    },
+    {
+      "case": "zero",
+      "seed": 37,
+      "mode": "gated",
+      "duration_s": 30.903000000000002,
+      "reason": "AssertionError('Flight left the test arena')"
+    },
+    {
+      "case": "zero",
+      "seed": 37,
+      "mode": "stock",
+      "duration_s": 31.101,
+      "reason": "AssertionError('Flight left the test arena')"
+    },
+    {
+      "case": "zero",
+      "seed": 47,
+      "mode": "gated",
+      "duration_s": 31.119,
+      "reason": "AssertionError('Flight left the test arena')"
+    },
+    {
+      "case": "zero",
+      "seed": 47,
+      "mode": "stock",
+      "duration_s": 31.753,
+      "reason": "AssertionError('Flight left the test arena')"
+    }
+  ],
+  "flight_checks_pass": 30,
+  "flight_checks_fail": 50,
+  "native_sha256": "28fc5c260253576ac888e80fc2f7d0c855146b88ceff29e0c5319317cd8c5c97",
+  "frozen_source_verified_before_documentation_edit": {
+    "bindings/cffirmware.i": true,
+    "sim/BASELINE_EKF.md": true,
+    "sim/README.md": true,
+    "sim/controllers/ekf_pid.py": true,
+    "sim/estimators/firmware_ekf.py": true,
+    "sim/flight_demo.py": true,
+    "sim/plot_ekf.py": true,
+    "sim/run_sim.py": true,
+    "sim/tests/smoke_firmware_ekf.py": true,
+    "src/modules/interface/kalman_core/kalman_core.h": true,
+    "src/modules/interface/kalman_core/mm_flow.h": true,
+    "src/modules/src/kalman_core/kalman_core.c": true,
+    "src/modules/src/kalman_core/mm_flow.c": true,
+    "sim/analyze_flow_gate.py": true,
+    "sim/flow_gate.py": true,
+    "sim/flow_test_scene.py": true,
+    "sim/tests/flow_gate_stock_golden.json": true,
+    "sim/tests/replay_flow_reference.py": true,
+    "sim/tests/test_flow_gate.py": true,
+    "sim/tests/test_flow_gate_analysis.py": true,
+    "sim/tests/run_flow_gate_campaign.py": true
+  },
+  "prior_reference_csv_identity_count": 17,
+  "prior_reference_csv_all_identical": true,
+  "execution_note": "The initial seed-7 stock/off render-compatibility pilot was run before the campaign wrapper; it has metadata, all CSVs and run.log, but no wrapper execution.json. The other 79 runs have execution.json.",
+  "raw_artifact_count": 882,
+  "raw_artifact_bytes": 6101245706
+}

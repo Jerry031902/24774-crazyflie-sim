@@ -144,6 +144,49 @@ class EKFTests(unittest.TestCase):
             self.assertEqual(command["estimate_used"]["position_m"][2], 0.)
             self.assertAlmostEqual(supplied["sensor_data"].acc.z, 1., places=5)
 
+    def test_flow_nis_uses_sequential_covariance_and_stock_cached_prediction(self):
+        ekf = FirmwareEKF()
+        s = np.ctypeslib.as_array((ctypes.c_float*9).from_address(int(ekf.core.S)))
+        p = np.ctypeslib.as_array((ctypes.c_float*81).from_address(int(ekf.core.P))).reshape(9, 9)
+        s[:] = 0
+        s[cf.KC_STATE_Z] = 1
+        p[:] = np.eye(9)
+        # Correlated horizontal velocities: X must reduce the variance used by Y.
+        p[cf.KC_STATE_PX, cf.KC_STATE_PY] = .5
+        p[cf.KC_STATE_PY, cf.KC_STATE_PX] = .5
+        flow, gyro = cf.flowMeasurement_t(), cf.Axis3f()
+        flow.dt = .01
+        flow.stdDevX = flow.stdDevY = 2
+        flow.dpixelx, flow.dpixely = 4, -6
+        cf.kalmanCoreUpdateWithFlow(ekf.core, flow, gyro)
+
+        h, variance = .01 * 35 / .71674, .2**2
+        sx = h*h + variance
+        py_after_x = 1 - (.5*h)**2 / sx
+        sy = h*h*py_after_x + variance
+        self.assertAlmostEqual(cf.kalmanCoreGetFlowNisX(), .4**2 / sx, places=6)
+        self.assertAlmostEqual(cf.kalmanCoreGetFlowInnovationVarianceX(), sx, places=6)
+        self.assertAlmostEqual(cf.kalmanCoreGetFlowInnovationVarianceY(), sy, places=6)
+        # Stock Y prediction retains the velocity cached before X; do not recompute it.
+        self.assertAlmostEqual(cf.kalmanCoreGetFlowNisY(), .6**2 / sy, places=6)
+        self.assertGreater(abs(cf.kalmanCoreGetFlowNisY() - .6**2 / sx), .1)
+
+    def test_flow_nis_rows_are_fresh_and_tof_rows_are_nan(self):
+        suite, ekf = SensorSuite(noise=True, seed=7), FirmwareEKF()
+        counts = {"flow": 0, "tof": 0}
+        for ms in range(101):
+            rows = ekf.step(ms, suite.sample(self.truth(ms)), True)
+            for row in rows:
+                counts[row["sensor"]] += 1
+                if row["sensor"] == "flow":
+                    self.assertEqual(row["nis_x"], cf.kalmanCoreGetFlowNisX())
+                    self.assertEqual(row["nis_y"], cf.kalmanCoreGetFlowNisY())
+                    self.assertTrue(np.isfinite([row["nis_x"], row["nis_y"]]).all())
+                    self.assertGreaterEqual(min(row["nis_x"], row["nis_y"]), 0)
+                else:
+                    self.assertTrue(math.isnan(row["nis_x"]) and math.isnan(row["nis_y"]))
+        self.assertEqual(counts, {"flow": 10, "tof": 4})
+
 
 if __name__ == "__main__":
     unittest.main()

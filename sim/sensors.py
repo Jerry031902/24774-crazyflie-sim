@@ -14,6 +14,7 @@ import math
 import numpy as np
 
 from controllers.firmware_pid import FirmwareGyroFilter, rotation_and_rpy, vector3
+from flow_faults import FlowFault, FlowFaultConfig
 
 # Rates/filters from sensors_bmi088_bmp3xx.c:61,140-141,546-547;
 # flowdeck_v1v2.c:88 and FreeRTOSConfig.h:77; zranger2.c:125,132.
@@ -115,6 +116,7 @@ class Measurement:
     value: np.ndarray
     dt_s: float = 0.0
     std: float = 0.0
+    flow_labels: dict | None = None
 
 
 class SensorSuite:
@@ -125,8 +127,10 @@ class SensorSuite:
     Stock queue processing does not rewind EKF history for delayed measurements.
     """
 
-    def __init__(self, noise=False, seed=DEFAULT_SEED, delays_ms=None):
+    def __init__(self, noise=False, seed=DEFAULT_SEED, delays_ms=None, flow_fault=None, flow_audit=False):
         self.noise, self.seed = bool(noise), int(seed)
+        self.flow_fault_config = flow_fault or FlowFaultConfig()
+        self.flow_audit = bool(flow_audit or self.flow_fault_config.kind != "off")
         self.delays = {"gyro": GYRO_DELAY_MS, "acc": ACCEL_DELAY_MS,
                        "flow": FLOW_DELAY_MS, "tof": TOF_DELAY_MS}
         if delays_ms is not None:
@@ -139,6 +143,9 @@ class SensorSuite:
 
     def reset(self):
         self.rng = np.random.default_rng(self.seed)
+        self.flow_fault = FlowFault(self.flow_fault_config, self.seed)
+        self.flow_samples = []
+        self.flow_drop_reasons = {"count_limit": 0, "motion_status": 0}
         self.gyro_filter = FirmwareGyroFilter(IMU_HZ, GYRO_LPF_HZ)
         self.acc_filter = FirmwareGyroFilter(IMU_HZ, ACCEL_LPF_HZ)
         self.previous_velocity = None
@@ -155,14 +162,15 @@ class SensorSuite:
     def _noise(self, std, size):
         return self.rng.normal(0, std, size) if self.noise else np.zeros(size)
 
-    def _enqueue(self, kind, now_ms, value, dt_s=0.0, std=0.0):
+    def _enqueue(self, kind, now_ms, value, dt_s=0.0, std=0.0, flow_labels=None):
         packet = Measurement(kind, now_ms, now_ms + int(self.delays[kind]),
-                             np.asarray(value, dtype=float).copy(), dt_s, std)
+                             np.asarray(value, dtype=float).copy(), dt_s, std, flow_labels)
         heapq.heappush(self.pending, (packet.delivery_ms, self.sequence, packet))
         self.sequence += 1
         self.generated[kind] += 1
 
     def sample(self, truth):
+        self.flow_samples = []  # Only this tick's sensor reads, including dropouts.
         now = float(truth["time_s"])
         ms = round(now * 1000)
         if not math.isfinite(now) or ms != self.next_ms or abs(now-ms/1000) > 1e-8:
@@ -186,20 +194,47 @@ class SensorSuite:
         if ms and ms % FLOW_PERIOD_MS == 0:
             read_dt = (ms - self.last_flow_read_ms) / 1000
             self.last_flow_read_ms = ms
-            counts = flow_model(z, rotation, rotation.T @ velocity, omega_body, read_dt)
-            counts += self._noise(FLOW_NOISE_STD_COUNTS, 2)
+            ideal = flow_model(z, rotation, rotation.T @ velocity, omega_body, read_dt)
+            noise = self._noise(FLOW_NOISE_STD_COUNTS, 2)
+            counts = ideal.copy()
+            counts += noise
+            clean = counts.copy()
+            counts, motion, clipped, labels = self.flow_fault.apply(ms, ideal, clean, noise)
             # Preserve stock pre-EKF range rejection; no new innovation gating.
-            if np.all(np.abs(counts) < FLOW_OUTLIER_LIMIT):
+            count_ok = bool(np.all(np.abs(counts) < FLOW_OUTLIER_LIMIT))
+            motion_ok = motion == 0xB0
+            driver_dt = math.nan
+            if count_ok:
                 driver_dt = (ms - self.last_flow_valid_ms) / 1000
+                # Driver updates this clock BEFORE the motion-status check.
                 self.last_flow_valid_ms = ms
-                # Assume valid PMW3901 motion/status 0xB0 on the textured floor.
-                self._enqueue("flow", ms, counts, driver_dt, FLOW_EKF_STD_COUNTS)
-            else:
+                if motion_ok:
+                    self._enqueue("flow", ms, counts, driver_dt, FLOW_EKF_STD_COUNTS,
+                                  labels if self.flow_audit else None)
+            reason = "none" if count_ok and motion_ok else "count_limit" if not count_ok else "motion_status"
+            if reason != "none":
                 self.dropped["flow"] += 1
+                self.flow_drop_reasons[reason] += 1
+            if self.flow_audit:
+                row = dict(labels, sample_time_s=ms/1000,
+                           scheduled_delivery_time_s=(ms+self.delays["flow"])/1000,
+                           read_dt_s=read_dt, driver_dt_s=driver_dt,
+                           motion=motion, count_ok=count_ok, motion_ok=motion_ok,
+                           enqueued=count_ok and motion_ok, drop_reason=reason,
+                           clipped=clipped)
+                for axis, i in zip("xy", range(2)):
+                    row.update({f"ideal_{axis}_counts": ideal[i], f"noise_{axis}_counts": noise[i],
+                                f"clean_{axis}_counts": clean[i], f"final_{axis}_counts": counts[i],
+                                f"fault_delta_{axis}_counts": counts[i]-clean[i]})
+                self.flow_samples.append(row)
 
         if ms and ms % TOF_PERIOD_MS == 0:
             ideal = tof_model(z, rotation[2, 2])
-            distance = max(0.0, ideal + float(self._noise(TOF_NOISE_STD_M, 1)[0])) if math.isfinite(ideal) else math.nan
+            # Keep RNG consumption tied to the sensor clock, even when a fault
+            # drives the vehicle to an attitude with no downward floor return.
+            # Valid-return behavior (including every stock reference) is identical.
+            tof_noise = float(self._noise(TOF_NOISE_STD_M, 1)[0])
+            distance = max(0.0, ideal + tof_noise) if math.isfinite(ideal) else math.nan
             if math.isfinite(distance) and distance < TOF_RANGE_LIMIT_M:
                 self._enqueue("tof", ms, [distance], std=tof_stock_std(distance))
             else:
@@ -217,7 +252,7 @@ class SensorSuite:
         return ready
 
     def settings(self):
-        return {"noise": self.noise, "seed": self.seed, "deck": "Flow v2 / VL53L1X",
+        settings = {"noise": self.noise, "seed": self.seed, "deck": "Flow v2 / VL53L1X",
                 "delays_ms": self.delays, "accel_noise_std_G": ACCEL_NOISE_STD_G,
                 "gyro_noise_std_deg_s": GYRO_NOISE_STD_DEG_S,
                 "accel_filtered_std_G": ACCEL_MEASURED_STD_G,
@@ -226,3 +261,8 @@ class SensorSuite:
                 "imu_hz": IMU_HZ, "flow_nominal_hz": 1000/FLOW_PERIOD_MS,
                 "tof_nominal_hz": 1000/TOF_PERIOD_MS,
                 "assumptions": "white Gaussian noise, no bias/quantization/dropout, flat floor, valid texture"}
+        if self.flow_audit:
+            settings["flow_fault"] = self.flow_fault_config.settings(self.seed)
+            settings["flow_audit"] = True
+            settings["assumptions"] = "white Gaussian noise, no bias/quantization, flat floor; synthetic flow faults are hypotheses, not a PMW3901 texture model"
+        return settings

@@ -1,0 +1,949 @@
+diff --git a/sim/BASELINE_EKF.md b/sim/BASELINE_EKF.md
+index c53d824a..77816b32 100644
+--- a/sim/BASELINE_EKF.md
++++ b/sim/BASELINE_EKF.md
+@@ -546,3 +546,84 @@ updates as denominator, separate forced accepts, and join fault labels by ID.
+ False-rejection rate is scored in independent faults-off runs, not in potentially
+ contaminated recovery samples of a fault run. Preserve per-seed results and
+ paired differences, and list every metric worsened by gating.
++
++## Step 4: matched threshold-9 campaign
++
++The accepted Step 3 implementation is commit `28a5e3b2`. Step 4 fixes
++`flow-empty`, `flow-shuttle-x`, closed loop, noise on, mass 0.033 kg,
++threshold 9.0 and maxReject 10. Cases are off, spikes 5/10/20/50 counts
++(probability 0.1), zero, dropout and scale 0.5. Noise seeds are
++7/17/27/37/47, with fault seed equal to noise seed. Every mode/case starts
++in a fresh process. No parameter is tuned and no threshold-6.63 or Y flight
++is launched by this runner.
++
++`tests/run_flow_gate_campaign.py` runs or resumes the fixed 80-run matrix.
++It freezes source and native-library hashes and checks recorded configuration.
++Expected flight-check failures and position-bound terminations remain results;
++unexpected infrastructure errors stop the campaign. An existing partial run
++without final metadata requires review rather than automatic overwriting.
++
++The optional smoke-runner flags `--no-render` and `--no-plots` skip visual
++updates and per-flight PNGs, retaining the 1 kHz physics/sensor/controller
++steps and all CSVs. Both flags default off. Before the matrix proceeds, three
++fresh seed-7 runs are checked against the accepted Step 3 reference CSVs:
++stock clean, gated clean, gated spike 20. All 17 existing CSVs must match
++byte for byte. Metadata records `render_every_steps=0` for these runs.
++
++Example host commands for a fresh output directory (Git runs on the host):
++
++```bash
++docker exec -w /workspace -e PYTHONPATH=/workspace/build cf_sim_dev /isaac-sim/python.sh sim/tests/run_flow_gate_campaign.py --source-commit "$(git rev-parse HEAD)" --output-dir /workspace/build/step4_threshold9_repeat
++docker exec -w /workspace -e PYTHONPATH=/workspace/build cf_sim_dev /isaac-sim/python.sh sim/analyze_flow_campaign.py build/step4_threshold9_repeat
++docker exec -w /workspace -e PYTHONPATH=/workspace/build cf_sim_dev /isaac-sim/python.sh sim/report_flow_campaign.py build/step4_threshold9_repeat
++```
++
++`analyze_flow_campaign.py` requires all 80 runs for a final report; `--partial`
++writes a separately named intermediate report. RMS is computed from the XY
++error norm over [26,30) s and [30,35) s; maxima use the observed run. The off
++case uses the same nominal windows. Statistics use sample SD across seeds
++(ddof=1), and paired differences are gated minus stock. Recovery retains the
++same mode/seed clean-reference definition above; its mean/SD is conditional
++on observed recovery, with n reported explicitly. Censored recovery is never
++replaced with zero or an invented recovery time.
++
++Incomplete windows retain observed RMS and coverage but have no complete-window
++RMS. A truncated maximum is an observed lower bound, not a smaller-error win.
++Full-run paired differences are marked non-comparable when either run stops
++early. Exceeding a completed counterpart's maximum can still prove worse;
++otherwise the outcome is indeterminate. Per-axis and pooled rejection rates
++use actual attempted scalar updates, with active, clean, post-5-s clean and
++all-post-window clean scopes. Forced accepts are counted separately. Dropout
++has no active update and an undefined active rejection rate. Post-window rates
++from truncated runs cover only observed updates.
++
++The analysis checks actual C decisions, streaks, counters, label joins,
++pre-fault state prefixes, matched noise samples and fault schedules. It also
++checks that spike amplitudes share the same schedules within each seed/mode.
++`analysis/TABLES.md` contains every per-seed metric, mean/SD, paired difference
++and better/worse/tie/indeterminate count. CSV/JSON files provide the same data;
++`worse_per_seed.csv` and `worse_mean.csv` retain regressions. Static figures
++show paired errors, clean costs, and seed-7 zero-fault reacquisition.
++
++The saved campaign is under `build/step4_threshold9/`, including raw CSVs,
++recorded metadata, hash manifests and the final report. Its 80 runs had no
++contacts; 73 ran 62 s, while seven zero-fault runs reached the unchanged 20 m
++position bound. The final unit suite has 118 tests: 117 pass and the same
++single baseline failure remains. Safety flights were not rerun. The STM32
++toolchain is unavailable on this machine, so no embedded build is verified.
++
++The five-seed results do not show a consistent clean-flight error penalty:
++the full-run XY estimate maximum has paired delta +1.05 ± 7.87 cm, with 3/5
++seeds improved. All four during/post RMS endpoints first meet the predeclared
++descriptive improvement rule (negative mean paired delta, at least 4/5 seeds
++improved per endpoint) at spike 10. Spike 50 improves all six error endpoints
++in 5/5 seeds. These statements do not establish population significance.
++
++Zero exposes a serious recovery problem: no active zero updates are rejected,
++but after normal flow resumes, gated X rejects about 90% of updates and forces
++one in ten. All five gated zero flights reach the position bound, versus two
++stock flights; neither mode shows joint recovery. Scale 0.5 worsens post-window
++estimate/tracking RMS in 4/5 seeds, by means of 4.28/4.43 cm. Dropout has no
++active gate decisions and mixed paired results; no forced accept occurs in
++dropout or scale. No parameter was changed in response. Full per-seed results,
++censoring, and all regressions are in the saved report, not just these means.
+diff --git a/sim/README.md b/sim/README.md
+index f860eb54..02117653 100644
+--- a/sim/README.md
++++ b/sim/README.md
+@@ -30,6 +30,8 @@ The PID uses the previous completed EKF output. The EKF worker then processes th
+ 
+ Shared C algorithms can be tested in sim and reused on hardware after adding the required bindings and hardware integration. The baseline uses `--flow-gate 0` (stock). An optional per-axis C NIS gate is described in [BASELINE_EKF.md](BASELINE_EKF.md#step-3-optional-per-axis-c-flow-gate); fault flights require `--scene flow-empty`. Passing in sim does not validate hardware timing, sensor fidelity, or the complete flight safety logic.
+ 
++The [Step 4 matched campaign](BASELINE_EKF.md#step-4-matched-threshold-9-campaign) records five paired noise/fault seeds per case, complete per-seed statistics, and explicit handling of truncated flights and censored recovery. Its threshold is fixed at 9.0; it does not launch a threshold sweep.
++
+ ---
+ 
+ ## Repo layout
+diff --git a/sim/tests/smoke_firmware_ekf.py b/sim/tests/smoke_firmware_ekf.py
+index e4f7c69b..466f3868 100644
+--- a/sim/tests/smoke_firmware_ekf.py
++++ b/sim/tests/smoke_firmware_ekf.py
+@@ -21,6 +21,8 @@ def main():
+     parser.add_argument("--noise", choices=("both", "off", "on"), default="both")
+     parser.add_argument("--seed", type=int, default=7)
+     parser.add_argument("--scene", choices=("arena", "flow-empty"), default="arena")
++    parser.add_argument("--no-render", action="store_true", help="Skip visual updates only; verify CSV identity before using for a campaign")
++    parser.add_argument("--no-plots", action="store_true", help="Retain CSV/JSON metrics without per-flight PNGs")
+     parser.add_argument("--output-dir", type=Path, default=Path(__file__).resolve().parents[2]/"build/ekf_baseline")
+     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+     from flow_faults import add_flow_arguments, config_from_args
+@@ -84,6 +86,7 @@ def main():
+                 report["scene"] = scene_info
+                 report["flow_gate"] = controller.ekf.flow_gate_settings
+                 report["bindings_sha256"] = hashlib.sha256(Path(_cffirmware.__file__).read_bytes()).hexdigest()
++                report["render_every_steps"] = 0 if args.no_render else runtime.RENDER_EVERY
+                 if fault.kind != "off":
+                     report["flow_fault_schedule"] = {"phase": args.flow_fault_phase,
+                                                       "offset_s": args.flow_fault_offset,
+@@ -101,7 +104,7 @@ def main():
+                         if contacts is not None:
+                             contacts.time_s = (step+1)*runtime.PHYSICS_DT
+                         sim.step(render=False)
+-                        if (step+1) % runtime.RENDER_EVERY == 0:
++                        if not args.no_render and (step+1) % runtime.RENDER_EVERY == 0:
+                             sim.render()
+                         if step % 5000 == 0:
+                             print(f"{name} t={truth['time_s']:.1f} phase={demo.phase} "
+@@ -117,7 +120,8 @@ def main():
+ 
+                 try:
+                     report.update(analyze(csv_path))
+-                    report["plot"] = str(plot_ekf(csv_path, gate_enabled=gate.enabled))
++                    if not args.no_plots:
++                        report["plot"] = str(plot_ekf(csv_path, gate_enabled=gate.enabled))
+                     packets = load(csv_path.with_suffix(".measurements.csv"))
+                     for sensor in ("flow", "tof"):
+                         selected = packets[packets["sensor"] == sensor]
+diff --git a/sim/analyze_flow_campaign.py b/sim/analyze_flow_campaign.py
+new file mode 100644
+index 00000000..ed3bda6b
+--- /dev/null
++++ b/sim/analyze_flow_campaign.py
+@@ -0,0 +1,281 @@
++"""Paired multi-seed flow-gate metrics, with explicit censoring and denominators."""
++import argparse
++import csv
++import json
++import math
++from pathlib import Path
++
++import numpy as np
++
++from analyze_flow_gate import recovery_time
++from analyze_flow_faults import truth_bool
++
++SEEDS=(7,17,27,37,47)
++CASES=("off","spike5","spike10","spike20","spike50","zero","dropout","scale05")
++ERROR_METRICS=("during_estimate_rms_m","during_tracking_rms_m","post_5s_estimate_rms_m",
++               "post_5s_tracking_rms_m","full_estimate_max_m","full_tracking_max_m")
++RECOVERY_METRICS=tuple(f"recovery_{kind}_s" for kind in ("estimate","tracking","joint"))
++FLIGHT_COLUMNS=("time_s","x_m","y_m","est_x_m","est_y_m","target_x_m","target_y_m","ekf_reset_count")
++SAMPLE_COLUMNS=("flow_sample_id","sample_time_s","fault_active","enqueued","fault_type",
++                "noise_x_counts","noise_y_counts")
++
++
++def load(path, columns=None):
++    return np.atleast_1d(np.genfromtxt(path,delimiter=",",names=True,dtype=None,encoding="utf-8",usecols=columns))
++
++
++def write_csv(path, rows):
++    if not rows:return
++    keys=list(dict.fromkeys(k for row in rows for k in row))
++    with path.open("w",newline="") as stream:
++        out=csv.DictWriter(stream,fieldnames=keys);out.writeheader();out.writerows(rows)
++
++
++def summary(values):
++    a=np.array([x for x in values if x is not None and math.isfinite(x)],dtype=float)
++    return dict(n=len(a),mean=float(a.mean()) if len(a) else None,
++                std=float(a.std(ddof=1)) if len(a)>1 else None)
++
++
++def errors(data):
++    est=np.hypot(data["est_x_m"]-data["x_m"],data["est_y_m"]-data["y_m"])
++    track=np.hypot(data["target_x_m"]-data["x_m"],data["target_y_m"]-data["y_m"])
++    return est,track
++
++
++def observed_window(values, times, start, end):
++    """Partial-window RMS is retained, but not reported as full-window RMS."""
++    ms=np.rint(times*1000).astype(np.int64)
++    keep=(ms>=round(start*1000))&(ms<round(end*1000))
++    selected=values[keep]
++    complete=np.array_equal(ms[keep],np.arange(round(start*1000),round(end*1000)))
++    finite=bool(np.isfinite(selected).all())
++    rms=float(np.sqrt(np.mean(selected*selected))) if len(selected) and finite else None
++    return dict(rms=rms if complete else None,observed_rms=rms,
++                coverage=len(selected)/round((end-start)*1000),complete=bool(complete and finite))
++
++
++def per_run(entry, clean, cache):
++    path=Path(entry["path"]);meta=json.loads(path.with_suffix(".json").read_text())
++    data=cache.setdefault(str(path),None)
++    if data is None:data=load(path,FLIGHT_COLUMNS);cache[str(path)]=data
++    times=data["time_s"];err,track=errors(data)
++    assert np.isfinite(err).all() and np.isfinite(track).all(),path
++    assert np.array_equal(np.rint(times*1000).astype(int),np.arange(len(times))),path
++    contact=meta["contacts"]["first_contact_s"]
++    r=dict(case=entry["case"],seed=entry["seed"],mode=entry["mode"],path=str(path),
++           duration_s=float(times[-1]),complete_run=bool(times[-1]>=62),stable=meta["stable"],
++           first_contact_s=contact,contact_events=meta["contacts"]["events"],
++           ekf_resets=int(np.max(data["ekf_reset_count"])),termination_error=meta.get("error"),
++           failed_checks=", ".join(k for k,v in meta["stability_checks"].items() if not v),
++           full_estimate_max_m=float(err.max()),full_tracking_max_m=float(track.max()))
++    for phase,start,end in (("during",26.,30.),("post_5s",30.,35.)):
++        for name,a in (("estimate",err),("tracking",track)):
++            w=observed_window(a,times,start,end)
++            r[f"{phase}_{name}_rms_m"]=w["rms"]
++            r[f"{phase}_{name}_observed_rms_m"]=w["observed_rms"]
++            r[f"{phase}_coverage"]=w["coverage"]
++            r[f"{phase}_complete"]=w["complete"]
++    clean_path=Path(clean["path"])
++    cm=json.loads(clean_path.with_suffix(".json").read_text())
++    cd=cache.setdefault(str(clean_path),None)
++    if cd is None:cd=load(clean_path,FLIGHT_COLUMNS);cache[str(clean_path)]=cd
++    assert meta["flow_gate"]==cm["flow_gate"],"Recovery must use the same gate configuration"
++    for key in ("seed","noise"):
++        assert meta["settings"][key]==cm["settings"][key]
++    for key in ("accel_noise_std_G","gyro_noise_std_deg_s","accel_filtered_std_G",
++                "gyro_filtered_std_deg_s","flow_noise_std_counts","tof_noise_std_m",
++                "delays_ms","imu_hz","flow_nominal_hz","tof_nominal_hz"):
++        assert meta["settings"][key]==cm["settings"][key],(path,key)
++    assert meta["mass_kg"]==cm["mass_kg"]==.033
++    assert meta["scene"]["scene"]==cm["scene"]["scene"]=="flow-empty"
++    assert meta["trajectory"]==cm["trajectory"]=="flow-shuttle-x"
++    # Physics/controller prefixes must match each mode's independent clean run.
++    prefix=min(len(data),len(cd),26000)
++    assert np.array_equal(data[:prefix],cd[:prefix]),f"Unmatched pre-fault prefix: {path}"
++    shared=min(len(data),len(cd));ce,ct=errors(cd[:shared])
++    st=times[:shared]
++    valid=np.ones(shared,dtype=bool)
++    for hit in (contact,cm["contacts"]["first_contact_s"]):
++        if hit is not None:valid &= st<hit
++    last_valid=float(st[valid][-1]) if valid.any() else 0.
++    r["recovery_observation_end_s"]=last_valid
++    r["recovery_censor_lower_bound_s"]=max(0.,last_valid-30.-1.)
++    r["clean_reference"]=str(clean_path)
++    est_ok=valid&(err[:shared]<=ce+.05)
++    track_ok=valid&(track[:shared]<=ct+.1)
++    for name,ok in (("estimate",est_ok),("tracking",track_ok),("joint",est_ok&track_ok)):
++        v=recovery_time(ok,st,30.,1.) if entry["case"]!="off" else None
++        r[f"recovery_{name}_s"]=v
++        r[f"recovery_{name}_status"]=("not_applicable" if entry["case"]=="off" else
++                                      "recovered" if v is not None else "censored")
++    samples=load(path.with_suffix(".flow_samples.csv"),SAMPLE_COLUMNS)
++    gates=load(path.with_suffix(".flow_gate.csv"))
++    sample_ids=samples["flow_sample_id"].astype(int)
++    enqueued=truth_bool(samples["enqueued"]);active=truth_bool(samples["fault_active"])
++    lookup={int(row["flow_sample_id"]):row for row in samples}
++    r.update(raw_fault_active_samples=int(active.sum()),
++             driver_dropped_fault_active_samples=int(np.sum(active&~enqueued)),
++             driver_dropped_clean_samples=int(np.sum(~active&~enqueued)))
++    if entry["case"]=="dropout":assert not np.any(active&enqueued),path
++    for axis in ("x","y","pooled"):
++        g=gates if axis=="pooled" else gates[gates["axis"]==axis]
++        if axis!="pooled":
++            assert np.array_equal(g["flow_sample_id"].astype(int),sample_ids[enqueued]),path
++            epoch=None;totals=dict(accepted=0,rejected=0,forced=0);streak=0
++            for row in g:
++                if epoch!=int(row["reset_epoch"]):
++                    epoch=int(row["reset_epoch"]);totals=dict(accepted=0,rejected=0,forced=0);streak=0
++                assert row["threshold"]==9 and row["max_reject"]==10
++                assert row["gate_enabled"]==int(entry["mode"]=="gated")
++                high=bool(row["gate_enabled"] and row["nis"]>9)
++                run=streak+1 if high else 0
++                decision=("forced" if run>=10 else "rejected") if high else "accepted"
++                assert row["decision"]==decision and row["streak_before"]==streak
++                assert row["run_at_decision"]==run
++                streak=run if decision=="rejected" else 0
++                assert row["consecutive_rejections"]==streak
++                totals[decision]+=1
++                for k,v in totals.items():assert row[k+"_total"]==v
++                sample=lookup[int(row["flow_sample_id"])]
++                assert str(sample["fault_active"])==str(row["fault_active"])
++                assert sample["fault_type"]==row["fault_type"]
++        ga=truth_bool(g["fault_active"]);gt=g["sample_time_s"]
++        scopes={"fault_active":ga,"clean":~ga,
++                "during_clean":(~ga)&(gt>=26)&(gt<30),
++                "post_5s_clean":(~ga)&(gt>=30)&(gt<35),
++                "post_all_clean":(~ga)&(gt>=30),"all":np.ones(len(g),dtype=bool)}
++        for scope,mask in scopes.items():
++            subset=g[mask];prefix=f"{axis}_{scope}"
++            r[prefix+"_attempted"]=len(subset)
++            for decision in ("accepted","rejected","forced"):
++                r[prefix+"_"+decision]=int(np.sum(subset["decision"]==decision))
++            r[prefix+"_rejection_rate"]=r[prefix+"_rejected"]/len(subset) if len(subset) else None
++    # Keep only clean traces cached across runs; each full array is otherwise released.
++    if entry["case"]!="off":cache.pop(str(path),None)
++    return r,samples
++
++
++def metric_specs():
++    specs={m:"lower" for m in ERROR_METRICS+RECOVERY_METRICS}
++    for axis in ("x","y","pooled"):
++        for scope in ("fault_active","clean","post_5s_clean","post_all_clean"):
++            specs[f"{axis}_{scope}_rejection_rate"]="higher" if scope=="fault_active" else "lower"
++        for scope in ("all","post_5s_clean","post_all_clean"):
++            specs[f"{axis}_{scope}_forced"]="lower_frequency"
++    return specs
++
++
++def compare(metric,a,z,direction):
++    av,zv=a.get(metric),z.get(metric)
++    delta=zv-av if av is not None and zv is not None else None
++    comparable=delta is not None
++    if metric.startswith("full_") and not (a["complete_run"] and z["complete_run"]):comparable=False
++    result="indeterminate"
++    if comparable:
++        sign=delta if direction!="higher" else -delta
++        result="better" if sign < -1e-10 else "worse" if sign > 1e-10 else "tie"
++    elif metric.startswith("full_") and delta is not None:
++        # A truncated maximum is a lower bound. It cannot win by being small,
++        # but exceeding a complete counterpart already proves it is worse.
++        if a["complete_run"] and zv>av+1e-10:result="worse"
++        if z["complete_run"] and av>zv+1e-10:result="better"
++    elif metric in RECOVERY_METRICS:
++        # A confirmed recovery can beat a censored counterpart only when it is
++        # earlier than the counterpart's last fully evaluable hold-window start.
++        if av is None and zv is not None and zv<a["recovery_censor_lower_bound_s"]-1e-9:result="better"
++        if zv is None and av is not None and av<z["recovery_censor_lower_bound_s"]-1e-9:result="worse"
++    return dict(stock=av,gated=zv,delta=delta,comparable=comparable,outcome=result)
++
++
++def aggregate(rows):
++    lookup={(r["case"],r["seed"],r["mode"]):r for r in rows}
++    paired=[];summaries=[]
++    for case in CASES:
++        for metric,direction in metric_specs().items():
++            pairs=[]
++            for seed in SEEDS:
++                if (case,seed,"stock") not in lookup or (case,seed,"gated") not in lookup:continue
++                a,z=lookup[(case,seed,"stock")],lookup[(case,seed,"gated")]
++                comp=compare(metric,a,z,direction)
++                pairs.append(dict(case=case,seed=seed,metric=metric,direction=direction,**comp))
++            if not pairs:continue
++            paired+=pairs
++            s=summary([p["stock"] for p in pairs]);g=summary([p["gated"] for p in pairs])
++            d=summary([p["delta"] for p in pairs if p["comparable"]])
++            observed=summary([p["delta"] for p in pairs])
++            r=dict(case=case,metric=metric,direction=direction,pairs=len(pairs),
++                   **{f"stock_{k}":v for k,v in s.items()},**{f"gated_{k}":v for k,v in g.items()},
++                   **{f"delta_{k}":v for k,v in d.items()},
++                   **{f"observed_delta_{k}":v for k,v in observed.items()},
++                   better=sum(p["outcome"]=="better" for p in pairs),
++                   worse=sum(p["outcome"]=="worse" for p in pairs),
++                   ties=sum(p["outcome"]=="tie" for p in pairs),
++                   indeterminate=sum(p["outcome"]=="indeterminate" for p in pairs))
++            for mode in ("stock","gated"):
++                r[f"{mode}_complete_runs"]=sum(
++                    lookup[(case,p["seed"],mode)]["complete_run"] for p in pairs)
++            r["mean_worse_proven_from_lower_bound"]=bool(
++                metric.startswith("full_") and r["stock_complete_runs"]==len(pairs)
++                and r["gated_complete_runs"]<len(pairs) and observed["n"]==len(pairs)
++                and observed["mean"]>1e-10)
++            # Descriptive 95% paired t interval for five complete pairs only.
++            half=2.7764451051977987*d["std"]/math.sqrt(5) if d["n"]==5 else None
++            r["delta_t95_low"]=d["mean"]-half if half is not None else None
++            r["delta_t95_high"]=d["mean"]+half if half is not None else None
++            summaries.append(r)
++    return paired,summaries
++
++
++def analyze(root, partial=False):
++    index=json.loads((root/"runs.json").read_text())
++    if not partial:assert len(index)==80,"Refuse a final report from an incomplete matrix"
++    clean={(r["seed"],r["mode"]):r for r in index if r["case"]=="off"}
++    rows=[];sample_cache={};cache={}
++    for entry in index:
++        if (entry["seed"],entry["mode"]) not in clean:continue
++        row,samples=per_run(entry,clean[(entry["seed"],entry["mode"])],cache)
++        rows.append(row);sample_cache[(row["case"],row["seed"],row["mode"])]=samples
++    checks=[]
++    for case in CASES:
++        for seed in SEEDS:
++            keys=[(case,seed,m) for m in ("stock","gated")]
++            if not all(k in sample_cache for k in keys):continue
++            a,z=(sample_cache[k] for k in keys);n=min(len(a),len(z))
++            for field in ("flow_sample_id","sample_time_s","fault_active","noise_x_counts","noise_y_counts"):
++                assert np.array_equal(a[field][:n],z[field][:n]),(case,seed,field)
++            checks.append(dict(case=case,seed=seed,matched_flow_reads=n,same_noise_and_fault_schedule=True))
++    amplitude_checks=[]
++    for seed in SEEDS:
++        for mode in ("stock","gated"):
++            base=sample_cache.get(("spike5",seed,mode))
++            if base is None:continue
++            for case in ("spike10","spike20","spike50"):
++                other=sample_cache.get((case,seed,mode))
++                if other is None:continue
++                n=min(len(base),len(other))
++                for field in ("flow_sample_id","sample_time_s","fault_active","noise_x_counts","noise_y_counts"):
++                    assert np.array_equal(base[field][:n],other[field][:n]),("amplitude pairing",seed,mode,case,field)
++                amplitude_checks.append(dict(seed=seed,mode=mode,reference="spike5",case=case,
++                                             matched_flow_reads=n,same_noise_and_fault_schedule=True))
++    paired,stats=aggregate(rows)
++    out=root/("analysis_partial" if partial else "analysis");out.mkdir(exist_ok=True)
++    for name,data in (("per_seed",rows),("paired",paired),("summary",stats),
++                      ("worse_per_seed",[r for r in paired if r["outcome"]=="worse"]),
++                      ("worse_mean",[r for r in stats if r["delta_mean"] is not None and
++                       (r["delta_mean"] if r["direction"]!="higher" else -r["delta_mean"])>1e-10
++                       or r["mean_worse_proven_from_lower_bound"]])):
++        (out/f"{name}.json").write_text(json.dumps(data,indent=2,allow_nan=False))
++        write_csv(out/f"{name}.csv",data)
++    for case in CASES:write_csv(out/f"per_seed_{case}.csv",[r for r in rows if r["case"]==case])
++    (out/"pairing_checks.json").write_text(json.dumps(checks,indent=2))
++    (out/"amplitude_pairing_checks.json").write_text(json.dumps(amplitude_checks,indent=2))
++    print(f"Scored {len(rows)}/80 runs, {len(checks)}/40 matched pairs; no threshold 6.63 runs",flush=True)
++    return rows,paired,stats
++
++
++if __name__=="__main__":
++    p=argparse.ArgumentParser(description=__doc__)
++    p.add_argument("campaign",type=Path)
++    p.add_argument("--partial",action="store_true")
++    args=p.parse_args();analyze(args.campaign,args.partial)
+diff --git a/sim/report_flow_campaign.py b/sim/report_flow_campaign.py
+new file mode 100644
+index 00000000..b2c25591
+--- /dev/null
++++ b/sim/report_flow_campaign.py
+@@ -0,0 +1,282 @@
++"""Write exhaustive tables and static figures from a completed threshold-9 matrix."""
++import argparse
++import json
++from pathlib import Path
++
++import matplotlib
++matplotlib.use("Agg")
++import matplotlib.pyplot as plt
++import numpy as np
++
++from analyze_flow_campaign import CASES, SEEDS, ERROR_METRICS, FLIGHT_COLUMNS, errors, load, write_csv
++
++CASE_LABELS = {"off": "off", "spike5": "spike 5", "spike10": "spike 10",
++               "spike20": "spike 20", "spike50": "spike 50", "zero": "zero",
++               "dropout": "dropout", "scale05": "scale 0.5"}
++LABELS = {
++    "during_estimate_rms_m": "During: XY estimate RMS",
++    "during_tracking_rms_m": "During: XY tracking RMS",
++    "post_5s_estimate_rms_m": "Post 5 s: XY estimate RMS",
++    "post_5s_tracking_rms_m": "Post 5 s: XY tracking RMS",
++    "full_estimate_max_m": "Full run: XY estimate max",
++    "full_tracking_max_m": "Full run: XY tracking max",
++}
++
++
++def number(value, metric, signed=False):
++    if value is None:
++        return "NA"
++    scale = 100 if metric.endswith("_rejection_rate") else 1
++    return format(value * scale, "+.5g" if signed else ".5g")
++
++
++def mean_sd(row, prefix, metric):
++    value = number(row[prefix + "_mean"], metric)
++    sd = number(row[prefix + "_std"], metric)
++    result = f"{value} ± {sd} (n={row[prefix + '_n']})"
++    if metric.startswith("full_") and prefix in ("stock", "gated"):
++        result += f"; complete={row[prefix + '_complete_runs']}/5"
++    return result
++
++
++def unit(metric):
++    if metric.endswith("_rejection_rate"):
++        return "% / Δ percentage points"
++    if metric.endswith("_m"):
++        return "m"
++    if metric.endswith("_s"):
++        return "s"
++    return "scalar updates"
++
++
++def markdown_table(header, rows):
++    return ["| " + " | ".join(header) + " |",
++            "| " + " | ".join("---" for _ in header) + " |"] + [
++                "| " + " | ".join(str(x) for x in row) + " |" for row in rows]
++
++
++def make_tables(out, rows, pairs, stats):
++    intro = [
++        "# Threshold 9.0: 完整 metrics", "",
++        "固定 maxReject=10；seeds=7,17,27,37,47；noise seed=fault seed。",
++        "During 为 [26,30) s，post 为 [30,35) s；faults-off 使用同一时间段。",
++        "所有 ± 为 seed 间 sample SD（ddof=1）。Δ=gated−stock。error 越小越好。",
++        "recovery 使用同 mode、同 seed 的 faults-off reference：estimate error ≤ reference+0.05 m，"
++        "tracking error ≤ reference+0.10 m，连续 1 s；分别报告两个条件以及 joint。",
++        "recovery 的 NA 是未观察到 recovery 或 off 不适用；mean/SD 只含已观察到的 recovery，n 明列。",
++        "fault-active rejection 的分母是实际到达 EKF 的 scalar updates；dropout 没有 update，rate 为 NA。",
++        "clean rejection 包含所有 fault-inactive updates；post_5s_clean 和 post_all_clean 单列。",
++        "rate 仅基于实际观察到的 updates；截短 run 的 post_5s_clean 不代表观察满 5 s。"
++        "各分母、duration 和 window coverage 都保留在 per_seed.csv。",
++        "forced accept 不算 rejected；forced count 的增加是发生次数增加，不单独证明 flight 变差。",
++        "fault-active rejection 越高表示检测到更多 fault，但不单独证明 flight 更好。",
++        "full-run max 在未跑满 62 s 时只是 observed lower bound，不能用较小的 partial max 宣称改善。",
++        "Observed Δ 栏保留截短 run 的 max difference；其 SD 描述已观察到的 differences，不是完整 62 s difference 的 SD。",
++        "对于 censored recovery 或 partial max，better/worse 仅在已有观察足以确定方向时计入；其余为 indeterminate。",
++        "", "[逐个 run 的全部数据](per_seed.csv) · [每个 paired difference](paired.csv) · "
++        "[全部变差的 seed/metric](worse_per_seed.csv) · [mean 变差的 metrics](worse_mean.csv)", "",
++    ]
++    content = list(intro)
++    for case in CASES:
++        content += [f"## {CASE_LABELS[case]}", "", f"[该 case 的 per-seed CSV](per_seed_{case}.csv)", ""]
++        table = []
++        for r in stats:
++            if r["case"] != case:
++                continue
++            m = r["metric"]
++            table.append([m, unit(m), mean_sd(r, "stock", m), mean_sd(r, "gated", m),
++                          mean_sd(r, "delta", m),
++                          mean_sd(r, "observed_delta", m) if m.startswith("full_") and r["delta_n"]<5 else "same",
++                          f"{r['better']} / {r['worse']} / {r['ties']} / {r['indeterminate']}"])
++        content += markdown_table(["Metric", "Unit", "Stock mean ± SD", "Gated mean ± SD",
++                                   "Comparable paired Δ mean ± SD", "Observed Δ mean ± SD (partial max)",
++                                   "Better / worse / tie / indeterminate (of 5)"], table)
++        content += ["", "### 每个 seed", ""]
++        table = []
++        for seed in SEEDS:
++            for p in pairs:
++                if p["case"] == case and p["seed"] == seed:
++                    m = p["metric"]
++                    table.append([seed, m, number(p["stock"], m), number(p["gated"], m),
++                                  number(p["delta"], m, True), p["comparable"], p["outcome"]])
++        content += markdown_table(["Seed", "Metric", "Stock", "Gated", "Δ", "Comparable Δ", "Outcome"], table)
++        content += ["", "### Run 状态", ""]
++        table = [[r["seed"], r["mode"], r["duration_s"], r["stable"], r["contact_events"],
++                  r["ekf_resets"], r["recovery_joint_status"], r["failed_checks"], r["termination_error"]]
++                 for r in rows if r["case"] == case]
++        content += markdown_table(["Seed", "Mode", "Duration s", "Flight checks pass", "Contacts",
++                                   "EKF resets", "Joint recovery", "Failed checks", "Termination error"], table)
++        content += [""]
++    (out / "TABLES.md").write_text("\n".join(content) + "\n")
++
++
++def make_regressions(out, rows, pairs, stats):
++    lines = ["# Gated 变差的完整清单", "",
++             "以下逐项列出所有能确定变差的 seed/metric。Δ=gated−stock；error 单位 m，"
++             "recovery 单位 s，rate 的 Δ 单位 percentage points。Forced count 增加只表示发生次数增加。",
++             "mean/SD 和完整对照见 [TABLES.md](TABLES.md)；机器可读数据见 [worse_per_seed.csv](worse_per_seed.csv)。",
++             ""]
++    for case in CASES:
++        lines += [f"## {CASE_LABELS[case]}", ""]
++        table = []
++        for r in stats:
++            if r["case"] != case:
++                continue
++            selected = [p for p in pairs if p["case"] == case and p["metric"] == r["metric"]
++                        and p["outcome"] == "worse"]
++            if not selected:
++                continue
++            details = []
++            for p in selected:
++                value = number(p["delta"], p["metric"], True)
++                if not p["comparable"]:
++                    value = ("gated censored" if p["delta"] is None else "observed Δ " + value)
++                details.append(f"{p['seed']} ({value})")
++            table.append([r["metric"], unit(r["metric"]), ", ".join(details)])
++        lines += markdown_table(["Metric", "Unit", "变差的 seeds (Δ)"], table) + [""]
++    lines += ["## 截短 run 的 observed max", "",
++              "这些是已观察到的 max differences；没有覆盖 62 s 的 run 不代表完整 62 s 的表现。"
++              "indeterminate 的两侧都已截短，不能据此断言完整 horizon 的差异。", ""]
++    partial = [p for p in pairs if p["metric"].startswith("full_") and not p["comparable"]]
++    lines += markdown_table(["Case", "Seed", "Metric", "Observed Δ m", "Complete-horizon outcome"],
++                            [[p["case"], p["seed"], p["metric"], number(p["delta"], p["metric"], True),
++                              p["outcome"]] for p in partial]) + [""]
++    lookup = {(r["case"], r["seed"], r["mode"]): r for r in rows}
++    checks = []
++    for case in CASES:
++        for seed in SEEDS:
++            a, z = [json.loads(Path(lookup[(case, seed, mode)]["path"]).with_suffix(".json").read_text())
++                    for mode in ("stock", "gated")]
++            for name, passed in a["stability_checks"].items():
++                if passed and not z["stability_checks"][name]:
++                    checks.append(dict(case=case, seed=seed, check=name, stock=True, gated=False))
++    (out / "flight_check_regressions.json").write_text(json.dumps(checks, indent=2))
++    write_csv(out / "flight_check_regressions.csv", checks)
++    lines += ["## 原有 flight checks 的 regression", ""]
++    lines += markdown_table(["Case", "Seed", "Check", "Stock", "Gated"],
++                            [[r["case"], r["seed"], r["check"], "pass", "fail"] for r in checks])
++    (out / "REGRESSIONS.md").write_text("\n".join(lines) + "\n")
++
++
++def plot_paired(out, pairs, stats, cases, filename):
++    fig, axes = plt.subplots(3, 2, figsize=(12, 11), constrained_layout=True)
++    colors = plt.get_cmap("tab10")(np.arange(5))
++    lookup = {(p["case"], p["seed"], p["metric"]): p for p in pairs}
++    slookup = {(r["case"], r["metric"]): r for r in stats}
++    for ax, metric in zip(axes.flat, ERROR_METRICS):
++        ax.axhline(0, color="0.35", lw=1)
++        for i, case in enumerate(cases):
++            for j, seed in enumerate(SEEDS):
++                p = lookup[(case, seed, metric)]
++                if p["comparable"]:
++                    ax.scatter(i + (j - 2) * .045, p["delta"] * 100,
++                               color=colors[j], s=27, label=f"seed {seed}" if i == 0 else None)
++                elif p["delta"] is not None:
++                    ax.scatter(i + (j - 2) * .045, p["delta"] * 100, facecolors="none",
++                               edgecolors=colors[j], marker="s", s=40)
++            r = slookup[(case, metric)]
++            if r["delta_mean"] is not None:
++                ax.errorbar(i, r["delta_mean"] * 100,
++                            yerr=(r["delta_std"] or 0) * 100, color="black", marker="D",
++                            ms=4, capsize=4, lw=1.1, zorder=5)
++            elif metric.startswith("post_5s") and r["delta_n"] == 0:
++                ax.text(i, .94, "Incomplete\nwindow", transform=ax.get_xaxis_transform(),
++                        ha="center", va="top", fontsize=9, color="0.35")
++        ax.set_xticks(range(len(cases)), [CASE_LABELS[c] for c in cases])
++        ax.set_title(LABELS[metric])
++        ax.set_ylabel("Gated - stock (cm)")
++        if "zero" in cases and metric.startswith("full_"):
++            ax.set_yscale("symlog", linthresh=5)
++            ax.set_ylabel("Gated - stock (cm; symlog, linear +/-5)")
++        ax.grid(axis="y", alpha=.2)
++    axes.flat[0].legend(fontsize=8, ncol=3)
++    fig.suptitle("Threshold 9, maxReject 10 | dots: paired seeds; black: mean +/- sample SD\n"
++                 "Negative = lower error; hollow squares = incomplete-run observed delta", fontsize=11)
++    fig.savefig(out / filename, dpi=180)
++    plt.close(fig)
++
++
++def plot_clean(out, rows):
++    fig, axes = plt.subplots(1, 2, figsize=(10, 4), constrained_layout=True)
++    colors = plt.get_cmap("tab10")(np.arange(5))
++    lookup = {(r["seed"], r["mode"]): r for r in rows if r["case"] == "off"}
++    for ax, metric in zip(axes, ERROR_METRICS[-2:]):
++        for i, seed in enumerate(SEEDS):
++            values = [lookup[(seed, mode)][metric] * 100 for mode in ("stock", "gated")]
++            ax.plot([0, 1], values, "o-", color=colors[i], label=f"seed {seed}")
++        ax.set_xticks([0, 1], ["Stock", "Gated (9.0)"])
++        ax.set_title(LABELS[metric])
++        ax.set_ylabel("cm")
++        ax.grid(axis="y", alpha=.2)
++    axes[0].legend(fontsize=8)
++    fig.suptitle("Faults off: same-seed pairs; all runs 62 s")
++    fig.savefig(out / "clean_pairs.png", dpi=180)
++    plt.close(fig)
++
++
++def plot_zero_detail(out, rows):
++    """Show the recorded return of clean flow and the ensuing gate decisions."""
++    fig, axes = plt.subplots(3, 1, figsize=(11, 9), sharex=True, constrained_layout=True)
++    for mode, color in (("stock", "tab:blue"), ("gated", "tab:orange")):
++        r = next(r for r in rows if r["case"] == "zero" and r["seed"] == 7 and r["mode"] == mode)
++        path = Path(r["path"])
++        d = load(path, FLIGHT_COLUMNS)
++        est, _ = errors(d)
++        axes[0].plot(d["time_s"], est, color=color, label=mode)
++        gates = load(path.with_suffix(".flow_gate.csv"))
++        x = gates[gates["axis"] == "x"]
++        axes[1].plot(x["sample_time_s"], x["nis"], color=color, lw=.9, label=mode)
++        if mode == "gated":
++            for j, (decision, marker) in enumerate((("accepted", "."), ("rejected", "x"), ("forced", "D"))):
++                selected = x[x["decision"] == decision]
++                axes[2].scatter(selected["sample_time_s"], np.full(len(selected), j), s=15,
++                                marker=marker, label=decision)
++            for ax in axes:
++                ax.axvline(r["duration_s"], color="red", ls=":", lw=1)
++    for ax in axes:
++        ax.axvspan(26, 30, color="0.5", alpha=.15)
++        ax.axvline(30, color="0.35", ls="--", lw=1)
++        ax.set_xlim(25, 35)
++        ax.grid(alpha=.2)
++    axes[0].set_ylabel("XY estimate error (m)")
++    axes[0].legend()
++    axes[1].set_yscale("symlog", linthresh=1)
++    axes[1].set_ylim(bottom=0)
++    axes[1].axhline(9, color="black", ls="--", label="threshold 9")
++    axes[1].set_ylabel("X NIS (symlog)")
++    axes[1].legend()
++    axes[2].set_yticks([0, 1, 2], ["accepted", "rejected", "forced"])
++    axes[2].set_ylabel("Gated X decision")
++    axes[2].set_xlabel("Time (s)")
++    fig.suptitle("Zero fault, seed 7 | shaded: zero counts enqueued; red: gated run reaches position bound\n"
++                 "Normal flow resumes at 30 s; missing data after termination is not extrapolated", fontsize=11)
++    fig.savefig(out / "zero_seed7_reacquisition.png", dpi=180)
++    plt.close(fig)
++
++
++def main(root):
++    out = root / "analysis"
++    rows, pairs, stats = [json.loads((out / f"{name}.json").read_text())
++                          for name in ("per_seed", "paired", "summary")]
++    assert len(rows) == 80 and len({(r["case"], r["seed"], r["mode"]) for r in rows}) == 80
++    make_tables(out, rows, pairs, stats)
++    make_regressions(out, rows, pairs, stats)
++    plot_paired(out, pairs, stats, CASES[:5], "paired_spikes.png")
++    plot_paired(out, pairs, stats, CASES[5:], "paired_zero_dropout_scale.png")
++    plot_clean(out, rows)
++    plot_zero_detail(out, rows)
++    criterion = []
++    for case in CASES[1:5]:
++        endpoints = [r for r in stats if r["case"] == case and r["metric"] in ERROR_METRICS[:4]]
++        criterion.append(dict(case=case, clear_paired_rms_improvement=all(
++            r["delta_n"] == 5 and r["delta_mean"] < 0 and r["better"] >= 4 for r in endpoints),
++            endpoints=[{k: r[k] for k in ("metric", "delta_mean", "delta_std", "delta_n", "better", "worse")}
++                       for r in endpoints]))
++    (out / "spike_improvement_criterion.json").write_text(json.dumps(criterion, indent=2))
++    print(f"Wrote exhaustive tables and four figures to {out}")
++
++
++if __name__ == "__main__":
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("campaign", type=Path)
++    main(parser.parse_args().campaign)
+diff --git a/sim/tests/run_flow_gate_campaign.py b/sim/tests/run_flow_gate_campaign.py
+new file mode 100644
+index 00000000..adf8c1d5
+--- /dev/null
++++ b/sim/tests/run_flow_gate_campaign.py
+@@ -0,0 +1,125 @@
++"""Resume a fixed, sequential 80-flight threshold-9 campaign inside cf_sim_dev.
++
++No tuning, no automatic threshold sweep. Every run uses fresh SimulationApp
++via the existing smoke runner. Flight-check failures are results; infrastructure
++errors stop the campaign. Seed-7 visual-update compatibility is checked first.
++"""
++import argparse
++from datetime import datetime, timezone
++import hashlib
++import json
++from pathlib import Path
++import subprocess
++import sys
++import time
++
++SEEDS = (7,17,27,37,47)
++CASES = ("off","spike5","spike10","spike20","spike50","zero","dropout","scale05")
++STEM = "flow-shuttle-x_ekf_closed_loop_noise_on"
++
++
++def digest(path):
++    return hashlib.sha256(path.read_bytes()).hexdigest()
++
++
++def case_name(case):
++    if case=="off":return STEM
++    if case.startswith("spike"):return STEM+"_spike_"+case[5:]
++    return STEM+"_"+("scale" if case=="scale05" else case)
++
++
++def command(root, seed, mode, case):
++    out=root/f"seed{seed}"/mode/case
++    fault="spike" if case.startswith("spike") else "scale" if case=="scale05" else case
++    args=[sys.executable,"sim/tests/smoke_firmware_ekf.py","--mode","ekf_closed_loop",
++          "--noise","on","--seed",str(seed),"--scene","flow-empty","--trajectory","flow-shuttle-x",
++          "--flow-fault",fault,"--flow-fault-seed",str(seed),"--flow-fault-offset","6",
++          "--flow-fault-duration","4","--flow-gate",str(int(mode=="gated")),
++          "--flow-gate-threshold","9.0","--flow-gate-max-reject","10",
++          "--flow-audit","--flow-gate-log","--no-render","--no-plots","--output-dir",str(out)]
++    if fault=="spike":args += ["--flow-spike-amplitude",case[5:]]
++    if fault=="scale":args += ["--flow-scale-factor","0.5"]
++    return args,out/case_name(case)
++
++
++def verify_meta(path,seed,mode,case,native_hash):
++    meta=json.loads(path.read_text())
++    assert meta["mode"]=="ekf_closed_loop" and meta["trajectory"]=="flow-shuttle-x"
++    assert meta["scene"]["scene"]=="flow-empty" and meta["mass_kg"]==.033
++    assert meta["settings"]["noise"] and meta["settings"]["seed"]==seed
++    f=meta["settings"]["flow_fault"]
++    expected="spike" if case.startswith("spike") else "scale" if case=="scale05" else case
++    assert f["kind"]==expected and f["resolved_seed"]==seed and f["start_s"]==26 and f["end_s"]==30
++    if expected=="spike":assert f["spike_amplitude"]==float(case[5:]) and f["spike_probability"]==.1
++    if expected=="scale":assert f["scale_factor"]==.5
++    g=meta["flow_gate"]
++    assert (g["enabled"],g["threshold"],g["max_reject"],g["logging"])==(int(mode=="gated"),9.,10,True)
++    assert meta["bindings_sha256"]==native_hash and meta["render_every_steps"]==0
++    assert "analysis_error" not in meta,meta.get("analysis_error")
++    if "error" in meta:assert meta["error"]=="AssertionError('Flight left the test arena')",meta["error"]
++    return meta
++
++
++def main():
++    p=argparse.ArgumentParser(description=__doc__)
++    p.add_argument("--output-dir",type=Path,default=Path("build/step4_threshold9"))
++    p.add_argument("--source-commit",required=True,help="Recorded on the host; no git operations inside the container")
++    args=p.parse_args()
++    root=args.output_dir.resolve();root.mkdir(parents=True,exist_ok=True)
++    import _cffirmware
++    native_hash=digest(Path(_cffirmware.__file__))
++    accepted=Path("build/step3_flow_gate_seed7")
++    source_paths=json.loads((accepted/"source_files.json").read_text())["sha256"]
++    frozen={name:digest(Path(name)) for name in source_paths}
++    frozen["sim/tests/run_flow_gate_campaign.py"]=digest(Path(__file__))
++    plan=dict(seeds=SEEDS,cases=CASES,modes=["stock","gated"],threshold=9.,max_reject=10,
++              fault_window_s=[26.,30.],noise=True,scene="flow-empty",trajectory="flow-shuttle-x",
++              native_sha256=native_hash,source_sha256=frozen,
++              commit=args.source_commit)
++    plan_path=root/"plan.json"
++    if plan_path.exists():assert json.loads(plan_path.read_text())==json.loads(json.dumps(plan)),"Campaign source/config changed"
++    else:plan_path.write_text(json.dumps(plan,indent=2))
++    index_path=root/"runs.json"
++    rows=json.loads(index_path.read_text()) if index_path.exists() else []
++    indexed={(r["seed"],r["mode"],r["case"]):r for r in rows}
++    probes=[(7,"stock","off"),(7,"gated","off"),(7,"gated","spike20")]
++    jobs=probes+[(s,m,c) for c in CASES for s in SEEDS for m in ("stock","gated") if (s,m,c) not in probes]
++    references={(7,"stock","off"):accepted/"empty_stock_reference"/STEM,
++                (7,"gated","off"):accepted/"gate_on_clean"/STEM,
++                (7,"gated","spike20"):accepted/"gate_on_spike20"/(STEM+"_spike_20")}
++    for seed,mode,case in jobs:
++        assert all(digest(Path(name))==value for name,value in frozen.items()),"Frozen source changed"
++        assert digest(Path(_cffirmware.__file__))==native_hash,"Bindings changed"
++        cmd,base=command(root,seed,mode,case)
++        if not base.with_suffix(".json").exists():
++            if base.with_suffix(".csv").exists():raise RuntimeError(f"Partial run requires review: {base}")
++            base.parent.mkdir(parents=True,exist_ok=True)
++            started=datetime.now(timezone.utc).isoformat();tick=time.monotonic()
++            print(f"BEGIN {seed} {mode} {case}",flush=True)
++            with (base.parent/"run.log").open("w") as log:
++                code=subprocess.run(cmd,stdout=log,stderr=subprocess.STDOUT).returncode
++            if code not in (0,1):raise RuntimeError(f"Infrastructure exit {code}: {base}")
++            execution=dict(command=cmd,exit_code=code,started_utc=started,wall_seconds=time.monotonic()-tick)
++            (base.parent/"execution.json").write_text(json.dumps(execution,indent=2))
++        meta=verify_meta(base.with_suffix(".json"),seed,mode,case,native_hash)
++        assert base.with_suffix(".flow_gate.csv").exists(),base
++        key=(seed,mode,case)
++        if key in references:
++            ref=references[key];comparisons=[]
++            for suffix in (".csv",".measurements.csv",".flow_samples.csv",".flow_updates.csv",".contacts.csv",".flow_gate.csv"):
++                a,z=ref.with_suffix(suffix),base.with_suffix(suffix)
++                if not a.exists():continue
++                comparisons.append(dict(reference=str(a),actual=str(z),identical=digest(a)==digest(z)))
++            (base.parent/"render_compatibility.json").write_text(json.dumps(comparisons,indent=2))
++            assert all(r["identical"] for r in comparisons),"No-render changed a reference CSV; stop"
++        indexed[key]=dict(seed=seed,mode=mode,case=case,path=str(base.with_suffix(".csv")),
++                          stable=meta["stable"],duration_s=meta["duration_s"],contacts=meta["contacts"],
++                          error=meta.get("error"))
++        rows=sorted(indexed.values(),key=lambda r:(CASES.index(r["case"]),r["seed"],r["mode"]))
++        index_path.write_text(json.dumps(rows,indent=2))
++        print(f"DONE {len(rows)}/80 {seed} {mode} {case}: stable={meta['stable']} duration={meta['duration_s']} contacts={meta['contacts']['events']}",flush=True)
++    assert len(rows)==80
++    print("THRESHOLD_9_CAMPAIGN_COMPLETE; no threshold 6.63 runs",flush=True)
++
++
++if __name__=="__main__":main()
+diff --git a/sim/tests/test_flow_campaign.py b/sim/tests/test_flow_campaign.py
+new file mode 100644
+index 00000000..b187ede4
+--- /dev/null
++++ b/sim/tests/test_flow_campaign.py
+@@ -0,0 +1,95 @@
++"""Check paired statistics and incomplete-window/censored comparisons."""
++from pathlib import Path
++import sys
++import unittest
++
++import numpy as np
++sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
++from analyze_flow_campaign import aggregate, compare, observed_window, summary, SEEDS, ERROR_METRICS
++
++
++class CampaignStatisticsTests(unittest.TestCase):
++    def test_sample_std_and_missing_values_are_explicit(self):
++        self.assertEqual(summary([1.,2.,3.,None]),dict(n=3,mean=2.,std=1.))
++        self.assertEqual(summary([None]),dict(n=0,mean=None,std=None))
++        self.assertEqual(summary([4.]),dict(n=1,mean=4.,std=None))
++
++    def test_half_open_window_and_incomplete_rms(self):
++        t=np.arange(25000,36001)*.001
++        values=np.full(len(t),2.)
++        values[(t<26)|(t>=30)]=1000.
++        r=observed_window(values,t,26.,30.)
++        self.assertEqual(r,dict(rms=2.,observed_rms=2.,coverage=1.,complete=True))
++        keep=t<28
++        r=observed_window(values[keep],t[keep],26.,30.)
++        self.assertIsNone(r["rms"])
++        self.assertEqual(r["observed_rms"],2.)
++        self.assertEqual(r["coverage"],.5)
++        self.assertFalse(r["complete"])
++
++    def test_early_termination_is_not_a_max_error_win(self):
++        a=dict(full_tracking_max_m=12.,complete_run=True)
++        z=dict(full_tracking_max_m=1.,complete_run=False)
++        r=compare("full_tracking_max_m",a,z,"lower")
++        self.assertEqual(r["delta"],-11.)
++        self.assertFalse(r["comparable"])
++        self.assertEqual(r["outcome"],"indeterminate")
++        z["full_tracking_max_m"]=13.
++        self.assertEqual(compare("full_tracking_max_m",a,z,"lower")["outcome"],"worse")
++        self.assertEqual(compare("full_tracking_max_m",z,a,"lower")["outcome"],"better")
++
++    def test_recovery_censoring_does_not_become_zero_or_a_false_win(self):
++        a=dict(recovery_joint_s=None,recovery_censor_lower_bound_s=31.)
++        z=dict(recovery_joint_s=2.,recovery_censor_lower_bound_s=31.)
++        r=compare("recovery_joint_s",a,z,"lower")
++        self.assertEqual(r["outcome"],"better")
++        self.assertIsNone(r["delta"])
++        self.assertFalse(r["comparable"])
++        a["recovery_censor_lower_bound_s"]=1.
++        self.assertEqual(compare("recovery_joint_s",a,z,"lower")["outcome"],"indeterminate")
++        z["recovery_joint_s"]=None
++        self.assertEqual(compare("recovery_joint_s",a,z,"lower")["outcome"],"indeterminate")
++
++    def test_partial_max_group_reports_observed_delta_not_a_complete_delta(self):
++        rows=[]
++        for seed in SEEDS:
++            rows.extend([
++                dict(case="zero",seed=seed,mode="stock",complete_run=True,full_estimate_max_m=float(seed)),
++                dict(case="zero",seed=seed,mode="gated",complete_run=False,full_estimate_max_m=float(seed+2)),
++            ])
++        _,stats=aggregate(rows)
++        r=next(r for r in stats if r["metric"]=="full_estimate_max_m")
++        self.assertEqual((r["delta_n"],r["delta_mean"]),(0,None))
++        self.assertEqual((r["observed_delta_n"],r["observed_delta_mean"],r["observed_delta_std"]),(5,2.,0.))
++        self.assertEqual((r["stock_complete_runs"],r["gated_complete_runs"]),(5,0))
++        self.assertTrue(r["mean_worse_proven_from_lower_bound"])
++        self.assertEqual(r["worse"],5)
++        for row in rows:
++            if row["mode"]=="gated":row["full_estimate_max_m"]-=4
++        _,stats=aggregate(rows)
++        r=next(r for r in stats if r["metric"]=="full_estimate_max_m")
++        self.assertFalse(r["mean_worse_proven_from_lower_bound"])
++        self.assertEqual((r["better"],r["indeterminate"]),(0,5))
++
++    def test_detection_and_clean_rejection_have_opposite_directions(self):
++        a,z={"rate":0.},{"rate":.5}
++        self.assertEqual(compare("rate",a,z,"higher")["outcome"],"better")
++        self.assertEqual(compare("rate",a,z,"lower")["outcome"],"worse")
++
++    def test_paired_delta_sd_is_not_the_difference_of_group_sds(self):
++        deltas=(1.,-2.,0.,3.,-4.)
++        rows=[]
++        for seed,delta in zip(SEEDS,deltas):
++            for mode,offset in (("stock",0.),("gated",delta)):
++                row=dict(case="off",seed=seed,mode=mode,complete_run=True)
++                row.update({k:10.+seed+offset for k in ERROR_METRICS})
++                rows.append(row)
++        _,stats=aggregate(rows)
++        r=next(r for r in stats if r["metric"]=="during_estimate_rms_m")
++        self.assertAlmostEqual(r["delta_mean"],-.4)
++        self.assertAlmostEqual(r["delta_std"],np.std(deltas,ddof=1))
++        self.assertEqual((r["better"],r["worse"],r["ties"],r["indeterminate"]),(2,2,1,0))
++        self.assertEqual(r["delta_n"],5)
++
++
++if __name__=="__main__":unittest.main()

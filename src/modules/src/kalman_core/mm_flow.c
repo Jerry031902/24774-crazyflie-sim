@@ -27,6 +27,7 @@
 #include "log.h"
 #include "platform_defaults.h"
 #include "param.h"
+#include <math.h>
 
 #define FLOW_RESOLUTION 0.10f //We get the measurements in 10x the motion pixels (experimentally measured)
 
@@ -35,12 +36,69 @@ static float predictedNX;
 static float predictedNY;
 static float measuredNX;
 static float measuredNY;
+static float flowNisX = NAN;
+static float flowNisY = NAN;
+static float flowInnovationVarianceX = NAN;
+static float flowInnovationVarianceY = NAN;
+static uint8_t flowGateEnabled = 0;
+static float flowGateThreshold = 9.0f;
+static uint16_t flowGateMaxReject = FLOW_GATE_DEFAULT_MAX_REJECT;
+static uint16_t flowGateRecoverK = FLOW_GATE_DEFAULT_RECOVER_K;
+static kalmanScalarGateState_t flowGateLogX;
+static kalmanScalarGateState_t flowGateLogY;
+
+bool kalmanCoreSetFlowGateConfig(uint8_t enabled, float threshold, uint16_t maxReject)
+{
+  if (enabled > 2 || !isfinite(threshold) || threshold <= 0 || maxReject == 0) { return false; }
+  flowGateThreshold = threshold;
+  flowGateMaxReject = maxReject;
+  flowGateEnabled = enabled;
+  return true;
+}
+
+uint8_t kalmanCoreGetFlowGateEnabled(void) { return flowGateEnabled; }
+float kalmanCoreGetFlowGateThreshold(void) { return flowGateThreshold; }
+uint16_t kalmanCoreGetFlowGateMaxReject(void) { return flowGateMaxReject; }
+uint16_t kalmanCoreGetFlowGateDefaultMaxReject(void) { return FLOW_GATE_DEFAULT_MAX_REJECT; }
+bool kalmanCoreSetFlowGateRecoverK(uint16_t recoverK)
+{
+  if (recoverK == 0) { return false; }
+  flowGateRecoverK = recoverK;
+  return true;
+}
+uint16_t kalmanCoreGetFlowGateRecoverK(void) { return flowGateRecoverK; }
+uint16_t kalmanCoreGetFlowGateDefaultRecoverK(void) { return FLOW_GATE_DEFAULT_RECOVER_K; }
+kalmanScalarGateState_t kalmanCoreGetFlowGateX(const kalmanCoreData_t *core) { return core->flowGateX; }
+kalmanScalarGateState_t kalmanCoreGetFlowGateY(const kalmanCoreData_t *core) { return core->flowGateY; }
+
+float kalmanCoreGetFlowNisX(void) { return flowNisX; }
+float kalmanCoreGetFlowNisY(void) { return flowNisY; }
+float kalmanCoreGetFlowInnovationVarianceX(void) { return flowInnovationVarianceX; }
+float kalmanCoreGetFlowInnovationVarianceY(void) { return flowInnovationVarianceY; }
+float kalmanCoreGetFlowPredictionX(void) { return predictedNX; }
+float kalmanCoreGetFlowPredictionY(void) { return predictedNY; }
 
 static Axis3f flowdeckPos = { .axis = { FLOWDECK_POS_X, FLOWDECK_POS_Y, FLOWDECK_POS_Z } }; // In body coordinate system
 
 void kalmanCoreUpdateWithFlow(kalmanCoreData_t* this, const flowMeasurement_t *flow, const Axis3f *gyro)
 {
   // Inclusion of flow measurements in the EKF done by two scalar updates
+  // Snapshot runtime configuration once for both axes. Do not retain a reject
+  // streak across parameter changes; totals still count all attempted updates.
+  const uint8_t enabled = flowGateEnabled;
+  const float threshold = flowGateThreshold;
+  const uint16_t maxReject = flowGateMaxReject;
+  const uint16_t recoverK = flowGateRecoverK;
+  if (this->flowGateEnabled != enabled || this->flowGateThreshold != threshold || this->flowGateMaxReject != maxReject ||
+      (enabled == 2 && this->flowGateRecoverK != recoverK)) {
+    this->flowGateX.consecutive = this->flowGateY.consecutive = 0;
+    this->flowGateX.recoveryConsecutive = this->flowGateY.recoveryConsecutive = 0;
+    this->flowGateX.state = this->flowGateY.state = KC_FLOW_ARMED;
+    this->flowGateEnabled = enabled;
+    this->flowGateThreshold = threshold;
+    this->flowGateMaxReject = maxReject;
+    this->flowGateRecoverK = recoverK;
+  }
 
   // ~~~ Camera constants ~~~
   // The angle of aperture is guessed from the raw data register and thankfully look to be symmetric
@@ -88,7 +146,13 @@ void kalmanCoreUpdateWithFlow(kalmanCoreData_t* this, const flowMeasurement_t *f
   hx[KC_STATE_PX] = (Npix * flow->dt / thetapix) * (this->R[2][2] / z_g);
 
   //First update
-  kalmanCoreScalarUpdate(this, &Hx, (measuredNX-predictedNX), flow->stdDevX*FLOW_RESOLUTION);
+  if (enabled == 2) {
+    flowInnovationVarianceX = kalmanCoreScalarUpdateWithRecoveryGate(this, &Hx, (measuredNX-predictedNX), flow->stdDevX*FLOW_RESOLUTION,
+      &flowNisX, &this->flowGateX, threshold, maxReject, recoverK);
+  } else {
+    flowInnovationVarianceX = kalmanCoreScalarUpdateWithGate(this, &Hx, (measuredNX-predictedNX), flow->stdDevX*FLOW_RESOLUTION,
+      &flowNisX, &this->flowGateX, enabled, threshold, maxReject);
+  }
 
   // Y velocity prediction and update
   float hy[KC_STATE_DIM] = {0};
@@ -101,7 +165,15 @@ void kalmanCoreUpdateWithFlow(kalmanCoreData_t* this, const flowMeasurement_t *f
   hy[KC_STATE_PY] = (Npix * flow->dt / thetapix) * (this->R[2][2] / z_g);
 
   // Second update
-  kalmanCoreScalarUpdate(this, &Hy, (measuredNY-predictedNY), flow->stdDevY*FLOW_RESOLUTION);
+  if (enabled == 2) {
+    flowInnovationVarianceY = kalmanCoreScalarUpdateWithRecoveryGate(this, &Hy, (measuredNY-predictedNY), flow->stdDevY*FLOW_RESOLUTION,
+      &flowNisY, &this->flowGateY, threshold, maxReject, recoverK);
+  } else {
+    flowInnovationVarianceY = kalmanCoreScalarUpdateWithGate(this, &Hy, (measuredNY-predictedNY), flow->stdDevY*FLOW_RESOLUTION,
+      &flowNisY, &this->flowGateY, enabled, threshold, maxReject);
+  }
+  flowGateLogX = this->flowGateX;
+  flowGateLogY = this->flowGateY;
 }
 
 /**
@@ -133,7 +205,50 @@ LOG_GROUP_START(kalman_pred)
  *  note: This is the same as motion.deltaY, so perhaps remove this?
  */
   LOG_ADD(LOG_FLOAT, measNY, &measuredNY)
+/**
+ * @brief Flow X scalar NIS before its accept/reject decision (dimensionless)
+ */
+  LOG_ADD(LOG_FLOAT, nisX, &flowNisX)
+/**
+ * @brief Flow Y scalar NIS using covariance after the X decision (dimensionless)
+ */
+  LOG_ADD(LOG_FLOAT, nisY, &flowNisY)
 LOG_GROUP_STOP(kalman_pred)
+
+// Latest flow call, like kalman_pred. Totals are per-core reset epoch.
+LOG_GROUP_START(flowGate)
+  LOG_ADD(LOG_UINT8, decX, &flowGateLogX.decision)
+  LOG_ADD(LOG_UINT8, decY, &flowGateLogY.decision)
+  LOG_ADD(LOG_UINT16, seqX, &flowGateLogX.consecutive)
+  LOG_ADD(LOG_UINT16, seqY, &flowGateLogY.consecutive)
+  LOG_ADD(LOG_UINT16, runX, &flowGateLogX.runAtDecision)
+  LOG_ADD(LOG_UINT16, runY, &flowGateLogY.runAtDecision)
+  LOG_ADD(LOG_UINT32, accX, &flowGateLogX.accepted)
+  LOG_ADD(LOG_UINT32, accY, &flowGateLogY.accepted)
+  LOG_ADD(LOG_UINT32, rejX, &flowGateLogX.rejected)
+  LOG_ADD(LOG_UINT32, rejY, &flowGateLogY.rejected)
+  LOG_ADD(LOG_UINT32, forceX, &flowGateLogX.forced)
+  LOG_ADD(LOG_UINT32, forceY, &flowGateLogY.forced)
+  LOG_ADD(LOG_UINT8, stateX, &flowGateLogX.state)
+  LOG_ADD(LOG_UINT8, stateY, &flowGateLogY.state)
+  LOG_ADD(LOG_UINT8, usedX, &flowGateLogX.stateAtUpdate)
+  LOG_ADD(LOG_UINT8, usedY, &flowGateLogY.stateAtUpdate)
+  LOG_ADD(LOG_UINT16, goodX, &flowGateLogX.recoveryConsecutive)
+  LOG_ADD(LOG_UINT16, goodY, &flowGateLogY.recoveryConsecutive)
+  LOG_ADD(LOG_UINT16, goodRunX, &flowGateLogX.recoveryRunAtDecision)
+  LOG_ADD(LOG_UINT16, goodRunY, &flowGateLogY.recoveryRunAtDecision)
+  LOG_ADD(LOG_UINT32, entryX, &flowGateLogX.recoveryEntries)
+  LOG_ADD(LOG_UINT32, entryY, &flowGateLogY.recoveryEntries)
+  LOG_ADD(LOG_UINT32, recSmplX, &flowGateLogX.samplesInRecovery)
+  LOG_ADD(LOG_UINT32, recSmplY, &flowGateLogY.samplesInRecovery)
+LOG_GROUP_STOP(flowGate)
+
+PARAM_GROUP_START(flowGate)
+  PARAM_ADD(PARAM_UINT8, enable, &flowGateEnabled)
+  PARAM_ADD(PARAM_FLOAT, threshold, &flowGateThreshold)
+  PARAM_ADD(PARAM_UINT16, maxReject, &flowGateMaxReject)
+  PARAM_ADD(PARAM_UINT16, recoverK, &flowGateRecoverK)
+PARAM_GROUP_STOP(flowGate)
 
 /**
  * Flowdeck properties

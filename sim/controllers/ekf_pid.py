@@ -1,4 +1,4 @@
-"""Compose synthetic sensors, the stock EKF, and the existing C PID/actuator API."""
+"""Compose synthetic sensors, the C EKF (gate off by default), and C PID."""
 
 import numpy as np
 
@@ -20,12 +20,16 @@ class EKFPIDController(Controller):
     The estimator's own bounds/reset supervisor IS preserved.
     """
 
-    def __init__(self, mode, noise=False, seed=DEFAULT_SEED, initial_xy_yaw=None):
+    def __init__(self, mode, noise=False, seed=DEFAULT_SEED, initial_xy_yaw=None, flow_fault=None, flow_audit=False,
+                 flow_gate=None, flow_gate_log=False):
         if mode not in ("ekf_shadow", "ekf_closed_loop"):
             raise ValueError(mode)
         self.mode = mode
-        self.suite = SensorSuite(noise=noise, seed=seed)
-        self.ekf = FirmwareEKF(initial_xy_yaw)
+        flow_gate_log = bool(flow_gate_log or (flow_gate is not None and flow_gate.enabled))
+        self.suite = SensorSuite(noise=noise, seed=seed, flow_fault=flow_fault, flow_audit=flow_audit or flow_gate_log)
+        self.ekf = FirmwareEKF(initial_xy_yaw, flow_audit=self.suite.flow_audit,
+                               fault_labels=self.suite.flow_fault_config.kind != "off",
+                               flow_gate=flow_gate, flow_gate_log=flow_gate_log)
         self.pid = FirmwarePIDController()
         self.gyro_filter_hz = self.pid.gyro_filter_hz
         self.reset()
@@ -71,4 +75,8 @@ class EKFPIDController(Controller):
                        estimate_used=state_dict(used), ekf_innovations=innovations,
                        imu_acc_G=self.suite.latest_acc.copy(), imu_gyro_deg_s=self.suite.latest_gyro.copy(),
                        ekf_reset_count=self.ekf.reset_count, quad_is_flying=self.is_flying)
+        if self.suite.flow_audit:
+            command.update(flow_samples=self.suite.flow_samples, flow_updates=self.ekf.flow_updates)
+        if self.ekf.flow_gate_log:
+            command["flow_gate"] = self.ekf.flow_gate_rows
         return command

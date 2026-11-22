@@ -1,0 +1,242 @@
+[
+  {
+    "case": "off",
+    "seed": 7,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "off",
+    "seed": 17,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "off",
+    "seed": 27,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "off",
+    "seed": 37,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "off",
+    "seed": 47,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "spike5",
+    "seed": 7,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "spike5",
+    "seed": 17,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "spike5",
+    "seed": 27,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "spike5",
+    "seed": 37,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "spike5",
+    "seed": 47,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "spike10",
+    "seed": 7,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "spike10",
+    "seed": 17,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "spike10",
+    "seed": 27,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "spike10",
+    "seed": 37,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "spike10",
+    "seed": 47,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "spike20",
+    "seed": 7,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "spike20",
+    "seed": 17,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "spike20",
+    "seed": 27,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "spike20",
+    "seed": 37,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "spike20",
+    "seed": 47,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "spike50",
+    "seed": 7,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "spike50",
+    "seed": 17,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "spike50",
+    "seed": 27,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "spike50",
+    "seed": 37,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "spike50",
+    "seed": 47,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "zero",
+    "seed": 7,
+    "matched_flow_reads": 3129,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "zero",
+    "seed": 17,
+    "matched_flow_reads": 3141,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "zero",
+    "seed": 27,
+    "matched_flow_reads": 3160,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "zero",
+    "seed": 37,
+    "matched_flow_reads": 3090,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "zero",
+    "seed": 47,
+    "matched_flow_reads": 3111,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "dropout",
+    "seed": 7,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "dropout",
+    "seed": 17,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "dropout",
+    "seed": 27,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "dropout",
+    "seed": 37,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "dropout",
+    "seed": 47,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "scale05",
+    "seed": 7,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "scale05",
+    "seed": 17,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "scale05",
+    "seed": 27,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "scale05",
+    "seed": 37,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  },
+  {
+    "case": "scale05",
+    "seed": 47,
+    "matched_flow_reads": 6200,
+    "same_noise_and_fault_schedule": true
+  }
+]

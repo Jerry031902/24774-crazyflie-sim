@@ -1,0 +1,9 @@
+case,seed,check,stock,gated
+spike20,27,final_mean_target_error_below_50_cm,True,False
+spike50,27,final_mean_target_error_below_50_cm,True,False
+zero,7,completed_demo,True,False
+zero,7,final_mean_speed_below_25_cm_s,True,False
+zero,17,completed_demo,True,False
+zero,17,final_mean_speed_below_25_cm_s,True,False
+zero,27,completed_demo,True,False
+zero,27,final_mean_speed_below_25_cm_s,True,False

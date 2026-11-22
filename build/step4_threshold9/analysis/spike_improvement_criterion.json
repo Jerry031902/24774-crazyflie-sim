@@ -1,0 +1,154 @@
+[
+  {
+    "case": "spike5",
+    "clear_paired_rms_improvement": false,
+    "endpoints": [
+      {
+        "metric": "during_estimate_rms_m",
+        "delta_mean": -0.02311819756046023,
+        "delta_std": 0.05894576179094042,
+        "delta_n": 5,
+        "better": 4,
+        "worse": 1
+      },
+      {
+        "metric": "during_tracking_rms_m",
+        "delta_mean": -0.02744729703394606,
+        "delta_std": 0.032744268696889775,
+        "delta_n": 5,
+        "better": 3,
+        "worse": 2
+      },
+      {
+        "metric": "post_5s_estimate_rms_m",
+        "delta_mean": -0.009263263237522329,
+        "delta_std": 0.07110929032770066,
+        "delta_n": 5,
+        "better": 3,
+        "worse": 2
+      },
+      {
+        "metric": "post_5s_tracking_rms_m",
+        "delta_mean": -0.010134103279934031,
+        "delta_std": 0.07038348187175726,
+        "delta_n": 5,
+        "better": 3,
+        "worse": 2
+      }
+    ]
+  },
+  {
+    "case": "spike10",
+    "clear_paired_rms_improvement": true,
+    "endpoints": [
+      {
+        "metric": "during_estimate_rms_m",
+        "delta_mean": -0.0627470994465448,
+        "delta_std": 0.05944756494950717,
+        "delta_n": 5,
+        "better": 4,
+        "worse": 1
+      },
+      {
+        "metric": "during_tracking_rms_m",
+        "delta_mean": -0.04347743362723288,
+        "delta_std": 0.0859096667025314,
+        "delta_n": 5,
+        "better": 4,
+        "worse": 1
+      },
+      {
+        "metric": "post_5s_estimate_rms_m",
+        "delta_mean": -0.08356626211073895,
+        "delta_std": 0.06046661237093514,
+        "delta_n": 5,
+        "better": 5,
+        "worse": 0
+      },
+      {
+        "metric": "post_5s_tracking_rms_m",
+        "delta_mean": -0.0815540525787833,
+        "delta_std": 0.05628957829239911,
+        "delta_n": 5,
+        "better": 5,
+        "worse": 0
+      }
+    ]
+  },
+  {
+    "case": "spike20",
+    "clear_paired_rms_improvement": true,
+    "endpoints": [
+      {
+        "metric": "during_estimate_rms_m",
+        "delta_mean": -0.1356766466051061,
+        "delta_std": 0.08877566977169402,
+        "delta_n": 5,
+        "better": 5,
+        "worse": 0
+      },
+      {
+        "metric": "during_tracking_rms_m",
+        "delta_mean": -0.10732774487705674,
+        "delta_std": 0.11910897982231998,
+        "delta_n": 5,
+        "better": 4,
+        "worse": 1
+      },
+      {
+        "metric": "post_5s_estimate_rms_m",
+        "delta_mean": -0.197118344459625,
+        "delta_std": 0.11107896339544455,
+        "delta_n": 5,
+        "better": 5,
+        "worse": 0
+      },
+      {
+        "metric": "post_5s_tracking_rms_m",
+        "delta_mean": -0.19209150015816195,
+        "delta_std": 0.10207190875593841,
+        "delta_n": 5,
+        "better": 5,
+        "worse": 0
+      }
+    ]
+  },
+  {
+    "case": "spike50",
+    "clear_paired_rms_improvement": true,
+    "endpoints": [
+      {
+        "metric": "during_estimate_rms_m",
+        "delta_mean": -0.4262447219534816,
+        "delta_std": 0.19736349780933415,
+        "delta_n": 5,
+        "better": 5,
+        "worse": 0
+      },
+      {
+        "metric": "during_tracking_rms_m",
+        "delta_mean": -0.4231443815895209,
+        "delta_std": 0.17736513770289591,
+        "delta_n": 5,
+        "better": 5,
+        "worse": 0
+      },
+      {
+        "metric": "post_5s_estimate_rms_m",
+        "delta_mean": -0.6082721783516333,
+        "delta_std": 0.3310631488458187,
+        "delta_n": 5,
+        "better": 5,
+        "worse": 0
+      },
+      {
+        "metric": "post_5s_tracking_rms_m",
+        "delta_mean": -0.6075174151601538,
+        "delta_std": 0.3304510891968695,
+        "delta_n": 5,
+        "better": 5,
+        "worse": 0
+      }
+    ]
+  }
+]

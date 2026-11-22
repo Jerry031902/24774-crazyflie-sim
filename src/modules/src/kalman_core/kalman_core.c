@@ -212,7 +212,112 @@ void kalmanCoreInit(kalmanCoreData_t *this, const kalmanCoreParams_t *params, co
   this->lastProcessNoiseUpdateMs = nowMs;
 }
 
+static float scalarUpdateInternal(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm,
+  float error, float stdMeasNoise, float *nis, kalmanScalarGateState_t *gate,
+  uint8_t enabled, float threshold, uint16_t maxReject, uint16_t recoverK);
+
+static void incrementGateCounter(uint32_t *value)
+{
+  if (*value < UINT32_MAX) { ++*value; }
+}
+
+static bool scalarGateAccept(kalmanScalarGateState_t *gate, float nis,
+  uint8_t enabled, float threshold, uint16_t maxReject, uint16_t recoverK)
+{
+  gate->streakBefore = gate->consecutive;
+  gate->runAtDecision = 0;
+  gate->stateBefore = gate->state;
+  gate->stateAtUpdate = gate->state;
+  gate->recoveryRunAtDecision = 0;
+
+  // Mode 2 has a persistent, per-axis recovery state. Mode 0/1 below retains
+  // the existing decisions and floating-point update path unchanged.
+  if (enabled == 2 && isfinite(threshold) && threshold > 0 && maxReject > 0 && recoverK > 0) {
+    if (gate->state == KC_FLOW_RECOVERY) {
+      incrementGateCounter(&gate->samplesInRecovery);
+      gate->recoveryRunAtDecision = nis <= threshold ? gate->recoveryConsecutive + 1 : 0;
+      gate->recoveryConsecutive = gate->recoveryRunAtDecision;
+      if (gate->recoveryConsecutive >= recoverK) {
+        // This update still uses RECOVERY. The next update is ARMED.
+        gate->state = KC_FLOW_ARMED;
+        gate->recoveryConsecutive = 0;
+      }
+      gate->decision = KC_FLOW_ACCEPTED;
+      gate->consecutive = 0;
+      incrementGateCounter(&gate->accepted);
+      return true;
+    }
+    gate->recoveryConsecutive = 0;
+    if (nis > threshold) {
+      gate->runAtDecision = gate->consecutive + 1;
+      if (gate->runAtDecision < maxReject) {
+        gate->consecutive = gate->runAtDecision;
+        gate->decision = KC_FLOW_REJECTED;
+        incrementGateCounter(&gate->rejected);
+        return false;
+      }
+      // The Nth high-NIS update enters recovery immediately and is accepted
+      // with the original R. It alone counts as forced; subsequent recovery
+      // updates count as accepted. Recovery samples include entry and exit.
+      gate->state = gate->stateAtUpdate = KC_FLOW_RECOVERY;
+      incrementGateCounter(&gate->recoveryEntries);
+      incrementGateCounter(&gate->samplesInRecovery);
+      gate->decision = KC_FLOW_FORCED;
+      incrementGateCounter(&gate->forced);
+    } else {
+      gate->decision = KC_FLOW_ACCEPTED;
+      incrementGateCounter(&gate->accepted);
+    }
+    gate->consecutive = 0;
+    return true;
+  }
+  // Invalid runtime configuration fails open. The bindings setter rejects it;
+  // direct firmware parameter writes cannot bypass this validity check.
+  if (enabled == 1 && isfinite(threshold) && threshold > 0 && maxReject > 0 && nis > threshold) {
+    gate->runAtDecision = gate->consecutive + 1;
+    if (gate->runAtDecision < maxReject) {
+      gate->consecutive = gate->runAtDecision;
+      gate->decision = KC_FLOW_REJECTED;
+      incrementGateCounter(&gate->rejected);
+      return false;
+    }
+    gate->decision = KC_FLOW_FORCED;
+    incrementGateCounter(&gate->forced);
+  } else {
+    gate->decision = KC_FLOW_ACCEPTED;
+    incrementGateCounter(&gate->accepted);
+  }
+  gate->consecutive = 0;
+  return true;
+}
+
 void kalmanCoreScalarUpdate(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm, float error, float stdMeasNoise)
+{
+  kalmanCoreScalarUpdateWithNis(this, Hm, error, stdMeasNoise, NULL);
+}
+
+float kalmanCoreScalarUpdateWithNis(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm, float error, float stdMeasNoise, float *nis)
+{
+  return scalarUpdateInternal(this, Hm, error, stdMeasNoise, nis, NULL, 0, 0, 0, 0);
+}
+
+float kalmanCoreScalarUpdateWithGate(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm,
+  float error, float stdMeasNoise, float *nis, kalmanScalarGateState_t *gate,
+  uint8_t enabled, float threshold, uint16_t maxReject)
+{
+  return scalarUpdateInternal(this, Hm, error, stdMeasNoise, nis, gate, enabled, threshold, maxReject, 0);
+}
+
+float kalmanCoreScalarUpdateWithRecoveryGate(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm,
+  float error, float stdMeasNoise, float *nis, kalmanScalarGateState_t *gate,
+  float threshold, uint16_t maxReject, uint16_t recoverK)
+{
+  return scalarUpdateInternal(this, Hm, error, stdMeasNoise, nis, gate, 2, threshold, maxReject, recoverK);
+}
+
+static float scalarUpdateInternal(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm,
+  float error, float stdMeasNoise, float *nis, kalmanScalarGateState_t *gate,
+  uint8_t enabled, float threshold, uint16_t maxReject, uint16_t recoverK)
 {
   // The Kalman gain as a column vector
   NO_DMA_CCM_SAFE_ZERO_INIT static float K[KC_STATE_DIM];
@@ -248,6 +353,15 @@ void kalmanCoreScalarUpdate(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm,
   }
   ASSERT(!isnan(HPHR));
 
+  // Observation only: use the exact innovation variance used by this update.
+  if (nis != NULL) {
+    *nis = (error * error) / HPHR;
+  }
+  if (gate != NULL && !scalarGateAccept(gate, nis != NULL ? *nis : (error * error) / HPHR,
+                                      enabled, threshold, maxReject, recoverK)) {
+    return HPHR;
+  }
+
   // ====== MEASUREMENT UPDATE ======
   // Calculate the Kalman gain and perform the state update
   for (int i=0; i<KC_STATE_DIM; i++) {
@@ -282,6 +396,7 @@ void kalmanCoreScalarUpdate(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm,
   assertStateNotNaN(this);
 
   this->isUpdated = true;
+  return HPHR;
 }
 
 void kalmanCoreUpdateWithPKE(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm, arm_matrix_instance_f32 *Km, arm_matrix_instance_f32 *P_w_m, float error)

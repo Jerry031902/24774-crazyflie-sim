@@ -1,0 +1,22 @@
+[
+  {
+    "suffix": ".csv",
+    "identical": true
+  },
+  {
+    "suffix": ".measurements.csv",
+    "identical": true
+  },
+  {
+    "suffix": ".flow_samples.csv",
+    "identical": true
+  },
+  {
+    "suffix": ".flow_updates.csv",
+    "identical": true
+  },
+  {
+    "suffix": ".contacts.csv",
+    "identical": true
+  }
+]

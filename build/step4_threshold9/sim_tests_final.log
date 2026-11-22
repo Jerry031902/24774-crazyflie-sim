@@ -1,0 +1,134 @@
+test_long_saturation_does_not_leave_integral_windup (test_altitude_pid.AltitudePIDTests.test_long_saturation_does_not_leave_integral_windup) ... ok
+test_nonfinite_state_cannot_reach_force_interface (test_altitude_pid.AltitudePIDTests.test_nonfinite_state_cannot_reach_force_interface) ... ok
+test_reset_clears_accumulated_error (test_altitude_pid.AltitudePIDTests.test_reset_clears_accumulated_error) ... ok
+test_closed_loop_pid_receives_only_estimator_and_imu (test_firmware_ekf.EKFTests.test_closed_loop_pid_receives_only_estimator_and_imu) ... ok
+test_delay_timestamps_and_noise_repeatability (test_firmware_ekf.EKFTests.test_delay_timestamps_and_noise_repeatability) ... ok
+test_flow_nis_rows_are_fresh_and_tof_rows_are_nan (test_firmware_ekf.EKFTests.test_flow_nis_rows_are_fresh_and_tof_rows_are_nan) ... ok
+test_flow_nis_uses_sequential_covariance_and_stock_cached_prediction (test_firmware_ekf.EKFTests.test_flow_nis_uses_sequential_covariance_and_stock_cached_prediction) ... ok
+test_imu_body_units_specific_force_and_filter (test_firmware_ekf.EKFTests.test_imu_body_units_specific_force_and_filter) ... ok
+test_rates_fifo_and_noise_off_retains_stock_uncertainty (test_firmware_ekf.EKFTests.test_rates_fifo_and_noise_off_retains_stock_uncertainty) ... ok
+test_stock_call_order_and_previous_samples (test_firmware_ekf.EKFTests.test_stock_call_order_and_previous_samples) ... ok
+test_stock_high_tilt_tof_check_and_no_new_innovation_gate (test_firmware_ekf.EKFTests.test_stock_high_tilt_tof_check_and_no_new_innovation_gate) ... ok
+test_true_model_measurements_have_zero_c_core_correction (test_firmware_ekf.EKFTests.test_true_model_measurements_have_zero_c_core_correction) ... ok
+test_actuator_desaturation_cutoff_and_invalid_input (test_firmware_pid.FirmwarePIDTests.test_actuator_desaturation_cutoff_and_invalid_input) ... ok
+test_c_rate_gates_and_persistent_control (test_firmware_pid.FirmwarePIDTests.test_c_rate_gates_and_persistent_control) ... ok
+test_firmware_gyro_filter_dc_and_250_hz_rejection (test_firmware_pid.FirmwarePIDTests.test_firmware_gyro_filter_dc_and_250_hz_rejection) ... ok
+test_legacy_pitch_inverted_but_quaternion_and_gyro_are_not (test_firmware_pid.FirmwarePIDTests.test_legacy_pitch_inverted_but_quaternion_and_gyro_are_not) ... ok
+test_reset_clears_c_history (test_firmware_pid.FirmwarePIDTests.test_reset_clears_c_history) ... ok
+test_world_gyro_to_body_and_specific_force (test_firmware_pid.FirmwarePIDTests.test_world_gyro_to_body_and_specific_force) ... ok
+test_detection_and_clean_rejection_have_opposite_directions (test_flow_campaign.CampaignStatisticsTests.test_detection_and_clean_rejection_have_opposite_directions) ... ok
+test_early_termination_is_not_a_max_error_win (test_flow_campaign.CampaignStatisticsTests.test_early_termination_is_not_a_max_error_win) ... ok
+test_half_open_window_and_incomplete_rms (test_flow_campaign.CampaignStatisticsTests.test_half_open_window_and_incomplete_rms) ... ok
+test_paired_delta_sd_is_not_the_difference_of_group_sds (test_flow_campaign.CampaignStatisticsTests.test_paired_delta_sd_is_not_the_difference_of_group_sds) ... ok
+test_partial_max_group_reports_observed_delta_not_a_complete_delta (test_flow_campaign.CampaignStatisticsTests.test_partial_max_group_reports_observed_delta_not_a_complete_delta) ... ok
+test_recovery_censoring_does_not_become_zero_or_a_false_win (test_flow_campaign.CampaignStatisticsTests.test_recovery_censoring_does_not_become_zero_or_a_false_win) ... ok
+test_sample_std_and_missing_values_are_explicit (test_flow_campaign.CampaignStatisticsTests.test_sample_std_and_missing_values_are_explicit) ... ok
+test_fault_arithmetic_and_half_open_window (test_flow_faults.FaultConfigTests.test_fault_arithmetic_and_half_open_window) ... ok
+test_spike_clip_probability_and_reproducible_schedule (test_flow_faults.FaultConfigTests.test_spike_clip_probability_and_reproducible_schedule) ... ok
+test_validation_and_cli_defaults_and_sweep (test_flow_faults.FaultConfigTests.test_validation_and_cli_defaults_and_sweep) ... ok
+test_changing_labels_alone_cannot_change_filter (test_flow_faults.FlowIntegrationTests.test_changing_labels_alone_cannot_change_filter) ... ok
+test_count_limit_strict_and_count_rejection_clock (test_flow_faults.FlowIntegrationTests.test_count_limit_strict_and_count_rejection_clock) ... ok
+test_delayed_labels_belong_to_sample_not_delivery (test_flow_faults.FlowIntegrationTests.test_delayed_labels_belong_to_sample_not_delivery) ... ok
+test_dropout_driver_clock_delay_and_no_fake_updates (test_flow_faults.FlowIntegrationTests.test_dropout_driver_clock_delay_and_no_fake_updates) ... ok
+test_fault_measurement_schema_and_audit_join (test_flow_faults.FlowIntegrationTests.test_fault_measurement_schema_and_audit_join) ... ok
+test_labels_do_not_change_estimator_and_off_audit_preserves_csv (test_flow_faults.FlowIntegrationTests.test_labels_do_not_change_estimator_and_off_audit_preserves_csv) ... ok
+test_missing_tof_return_cannot_shift_flow_or_imu_noise (test_flow_faults.FlowIntegrationTests.test_missing_tof_return_cannot_shift_flow_or_imu_noise) ... ok
+test_noise_rng_independence_all_faults_and_reset (test_flow_faults.FlowIntegrationTests.test_noise_rng_independence_all_faults_and_reset) ... ok
+test_shuttle_both_axes_endpoints_peak_speed_and_symmetry (test_flow_faults.FlowIntegrationTests.test_shuttle_both_axes_endpoints_peak_speed_and_symmetry) ... ok
+test_accepted_measurement_breaks_streak (test_flow_gate.FlowGateTests.test_accepted_measurement_breaks_streak) ... ok
+test_axes_decide_independently (test_flow_gate.FlowGateTests.test_axes_decide_independently) ... ok
+test_below_threshold_and_exact_threshold_are_accepted (test_flow_gate.FlowGateTests.test_below_threshold_and_exact_threshold_are_accepted) ... ok
+test_core_reset_and_core_independence (test_flow_gate.FlowGateTests.test_core_reset_and_core_independence) ... ok
+test_counter_saturates_instead_of_wrapping (test_flow_gate.FlowGateTests.test_counter_saturates_instead_of_wrapping) ... ok
+test_fault_labels_cannot_influence_enabled_gate (test_flow_gate.FlowGateTests.test_fault_labels_cannot_influence_enabled_gate) ... ok
+test_forced_accept_at_limit_and_disjoint_counters (test_flow_gate.FlowGateTests.test_forced_accept_at_limit_and_disjoint_counters) ... ok
+test_invalid_configuration_does_not_replace_valid_config (test_flow_gate.FlowGateTests.test_invalid_configuration_does_not_replace_valid_config) ... ok
+test_limit_one_and_uint16_max (test_flow_gate.FlowGateTests.test_limit_one_and_uint16_max) ... ok
+test_logs_actual_axis_updates_and_excludes_dropout (test_flow_gate.FlowGateTests.test_logs_actual_axis_updates_and_excludes_dropout) ... ok
+test_off_bit_identical_to_independent_step2_stock_binary (test_flow_gate.FlowGateTests.test_off_bit_identical_to_independent_step2_stock_binary) ... ok
+test_reject_leaves_state_covariance_and_update_flag_unchanged (test_flow_gate.FlowGateTests.test_reject_leaves_state_covariance_and_update_flag_unchanged) ... ok
+test_runtime_switch_resets_streak_but_keeps_totals (test_flow_gate.FlowGateTests.test_runtime_switch_resets_streak_but_keeps_totals) ... ok
+test_above_threshold_runs_include_single_and_terminal_samples (test_flow_gate_analysis.GateMetricTests.test_above_threshold_runs_include_single_and_terminal_samples) ... ok
+test_contact_censor_or_insufficient_tail_is_not_success (test_flow_gate_analysis.GateMetricTests.test_contact_censor_or_insufficient_tail_is_not_success) ... ok
+test_recovery_rejects_unmatched_clean_counterfactual (test_flow_gate_analysis.GateMetricTests.test_recovery_rejects_unmatched_clean_counterfactual) ... ok
+test_recovery_requires_full_continuous_hold_after_window (test_flow_gate_analysis.GateMetricTests.test_recovery_requires_full_continuous_hold_after_window) ... ok
+test_10_hz_delivery_delay_and_held_values (test_ranger.RangerTests.test_10_hz_delivery_delay_and_held_values) ... ok
+test_all_hits_ignore_self_and_choose_nearest_regardless_of_order (test_ranger.RangerTests.test_all_hits_ignore_self_and_choose_nearest_regardless_of_order) ... ok
+test_cone_reports_nearest_hit_off_the_centre_line (test_ranger.RangerTests.test_cone_reports_nearest_hit_off_the_centre_line) ... ok
+test_default_delivery_is_one_driver_period_late (test_ranger.RangerTests.test_default_delivery_is_one_driver_period_late) ... ok
+test_default_origins_are_the_datasheet_sensor_faces (test_ranger.RangerTests.test_default_origins_are_the_datasheet_sensor_faces) ... ok
+test_invalid_range_and_noise_never_turn_no_return_into_obstacle (test_ranger.RangerTests.test_invalid_range_and_noise_never_turn_no_return_into_obstacle) ... ok
+test_origins_and_axes_rotate_with_body (test_ranger.RangerTests.test_origins_and_axes_rotate_with_body) ... ok
+test_packet_csv_and_metadata (test_ranger.RangerTests.test_packet_csv_and_metadata) ... ok
+test_reject_bad_configuration (test_ranger.RangerTests.test_reject_bad_configuration) ... ok
+test_repeatable_noise_reset_and_off (test_ranger.RangerTests.test_repeatable_noise_reset_and_off) ... ok
+test_hold_feedback_is_bounded_and_points_back (test_safety.ArbiterTests.test_hold_feedback_is_bounded_and_points_back) ... ok
+test_holding_correction_cannot_bypass_distance_or_blind_direction (test_safety.ArbiterTests.test_holding_correction_cannot_bypass_distance_or_blind_direction) ... ok
+test_invalid_estimate_never_produces_nan_commands (test_safety.ArbiterTests.test_invalid_estimate_never_produces_nan_commands) ... ok
+test_invalid_processed_data_and_primary_failure_fall_back (test_safety.ArbiterTests.test_invalid_processed_data_and_primary_failure_fall_back) ... ok
+test_recovery_from_invalid_initial_position_does_not_poison_hold (test_safety.ArbiterTests.test_recovery_from_invalid_initial_position_does_not_poison_hold) ... ok
+test_recovery_requires_distinct_healthy_frames (test_safety.ArbiterTests.test_recovery_requires_distinct_healthy_frames) ... ok
+test_rejected_navigation_rolls_back_and_yaw_stops (test_safety.ArbiterTests.test_rejected_navigation_rolls_back_and_yaw_stops) ... ok
+test_stopping_holding_and_replanning (test_safety.ArbiterTests.test_stopping_holding_and_replanning) ... ok
+test_closed_loop_safety_does_not_read_truth_pose (test_safety.MissionIntegrationTests.test_closed_loop_safety_does_not_read_truth_pose) ... ok
+test_navigation_fault_injection_triggers_backup (test_safety.MissionIntegrationTests.test_navigation_fault_injection_triggers_backup) ... ok
+test_off_path_has_no_safety_fields_and_reset_clears_histories (test_safety.MissionIntegrationTests.test_off_path_has_no_safety_fields_and_reset_clears_histories) ... ok
+test_real_flight_csv_schema_and_safety_plot (test_safety.MissionIntegrationTests.test_real_flight_csv_schema_and_safety_plot) ... ok
+test_real_sensor_transport_and_mission_keep_pid_height (test_safety.MissionIntegrationTests.test_real_sensor_transport_and_mission_keep_pid_height) ... ok
+test_report_contains_config_events_and_finite_json (test_safety.MissionIntegrationTests.test_report_contains_config_events_and_finite_json) ... ok
+test_backup_ignores_corrupt_processed_data (test_safety.MonitorTests.test_backup_ignores_corrupt_processed_data) ... ok
+test_braking_envelope_is_not_the_matlab_tau_model (test_safety.MonitorTests.test_braking_envelope_is_not_the_matlab_tau_model) ... ok
+test_configuration_rejects_invalid_braking_bounds (test_safety.MonitorTests.test_configuration_rejects_invalid_braking_bounds) ... ok
+test_filter_counts_distinct_packets_and_resets_on_rotation (test_safety.MonitorTests.test_filter_counts_distinct_packets_and_resets_on_rotation) ... ok
+test_hard_gap_trips_at_rest (test_safety.MonitorTests.test_hard_gap_trips_at_rest) ... ok
+test_no_packet_invalid_packet_and_valid_no_return_are_distinct (test_safety.MonitorTests.test_no_packet_invalid_packet_and_valid_no_return_are_distinct) ... ok
+test_overspeed_triggers_raw_backup (test_safety.MonitorTests.test_overspeed_triggers_raw_backup) ... ok
+test_pure_yaw_does_not_create_physical_closing (test_safety.MonitorTests.test_pure_yaw_does_not_create_physical_closing) ... ok
+test_separate_primary_and_navigation_heartbeats (test_safety.MonitorTests.test_separate_primary_and_navigation_heartbeats) ... ok
+test_side_rear_and_unobserved_diagonal_commands (test_safety.MonitorTests.test_side_rear_and_unobserved_diagonal_commands) ... ok
+test_stale_future_invalid_and_rollback_frames (test_safety.MonitorTests.test_stale_future_invalid_and_rollback_frames) ... ok
+test_stationary_dangerous_candidate_is_rejected_before_motion (test_safety.MonitorTests.test_stationary_dangerous_candidate_is_rejected_before_motion) ... ok
+test_tilt_is_checked_and_cones_use_full_sample_rotation (test_safety.MonitorTests.test_tilt_is_checked_and_cones_use_full_sample_rotation) ... ok
+test_c_transactions_delayed_scans_and_recovery (test_safety.NativeNavigationTests.test_c_transactions_delayed_scans_and_recovery) ... ok
+test_invalid_sensor_status_never_becomes_valid_free_space (test_safety.TransportAndNavigationTests.test_invalid_sensor_status_never_becomes_valid_free_space) ... ok
+test_malformed_transport_and_mutated_held_packet_fail_closed (test_safety.TransportAndNavigationTests.test_malformed_transport_and_mutated_held_packet_fail_closed) ... ok
+test_navigation_frame_times_use_navigation_epoch (test_safety.TransportAndNavigationTests.test_navigation_frame_times_use_navigation_epoch) ... ok
+test_python_resume_preserves_waypoint_side_and_episode_history (test_safety.TransportAndNavigationTests.test_python_resume_preserves_waypoint_side_and_episode_history) ... ok
+test_timestamped_scan_uses_sample_yaw_and_no_duplicate_packets (test_safety.TransportAndNavigationTests.test_timestamped_scan_uses_sample_yaw_and_no_duplicate_packets) ... ok
+test_transport_uses_sample_time_estimates_not_current_pose (test_safety.TransportAndNavigationTests.test_transport_uses_sample_time_estimates_not_current_pose) ... ok
+test_c_defaults_match_python_params (test_wedgebug.FirmwareCoreTests.test_c_defaults_match_python_params) ... ok
+test_c_replays_python_decisions (test_wedgebug.FirmwareCoreTests.test_c_replays_python_decisions)
+Feed the Python run's exact inputs to the C core, tick by tick. ... FAIL
+test_firmware_pid_hover_setpoint (test_wedgebug.FirmwareCoreTests.test_firmware_pid_hover_setpoint) ... ok
+test_blind_drone_collides (test_wedgebug.NavigationTests.test_blind_drone_collides) ... ok
+test_enclosed_waypoint_is_reported_and_skipped (test_wedgebug.NavigationTests.test_enclosed_waypoint_is_reported_and_skipped) ... ok
+test_goes_round_the_shorter_side (test_wedgebug.NavigationTests.test_goes_round_the_shorter_side) ... ok
+test_matlab_main_mission_matches_matlab_results (test_wedgebug.NavigationTests.test_matlab_main_mission_matches_matlab_results) ... ok
+test_open_room_flies_straight_line (test_wedgebug.NavigationTests.test_open_room_flies_straight_line) ... ok
+test_shapes_are_passed_with_every_move_sensed (test_wedgebug.NavigationTests.test_shapes_are_passed_with_every_move_sensed) ... ok
+test_waypoint_inside_obstacle_is_rejected (test_wedgebug.NavigationTests.test_waypoint_inside_obstacle_is_rejected) ... ok
+test_cone_sees_block_off_the_centre_line (test_wedgebug.RangerTests.test_cone_sees_block_off_the_centre_line) ... ok
+test_invalid_readings_are_nan (test_wedgebug.RangerTests.test_invalid_readings_are_nan) ... ok
+test_rangers_see_walls_and_obstacles (test_wedgebug.RangerTests.test_rangers_see_walls_and_obstacles) ... ok
+test_readings_arrive_one_driver_period_late (test_wedgebug.RangerTests.test_readings_arrive_one_driver_period_late) ... ok
+test_sensor_faces_and_whole_millimetres (test_wedgebug.RangerTests.test_sensor_faces_and_whole_millimetres) ... ok
+test_hysteresis_turns_on_at_threshold_and_off_past_it (test_wedgebug.ReadingRuleTests.test_hysteresis_turns_on_at_threshold_and_off_past_it) ... ok
+test_slows_down_passing_close_to_a_side_obstacle (test_wedgebug.ReadingRuleTests.test_slows_down_passing_close_to_a_side_obstacle) ... ok
+test_unknown_ahead_holds_until_it_reads (test_wedgebug.ReadingRuleTests.test_unknown_ahead_holds_until_it_reads) ... ok
+test_unknown_is_neither_an_edge_nor_free_space (test_wedgebug.ReadingRuleTests.test_unknown_is_neither_an_edge_nor_free_space) ... ok
+test_wall_following_turns_parallel_to_the_wall (test_wedgebug.ReadingRuleTests.test_wall_following_turns_parallel_to_the_wall) ... ok
+
+======================================================================
+FAIL: test_c_replays_python_decisions (test_wedgebug.FirmwareCoreTests.test_c_replays_python_decisions)
+Feed the Python run's exact inputs to the C core, tick by tick.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/workspace/sim/tests/test_wedgebug.py", line 263, in test_c_replays_python_decisions
+    self.assertEqual(modes_differ, 0)
+AssertionError: 622 != 0
+
+----------------------------------------------------------------------
+Ran 118 tests in 6.654s
+
+FAILED (failures=1)
+There was an error running python

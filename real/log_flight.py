@@ -50,6 +50,10 @@ LOG_BLOCKS = {
     "status": ["kalman.varPX", "kalman.varPY", "kalman.varPZ", "supervisor.info"],
 }
 RANGER_LOG_BLOCK = {"ranger": ["range.front", "range.back", "range.left", "range.right", "range.up"]}
+NIS_VALUES = ("kalman_pred.nisX", "kalman_pred.nisY")
+NIS_LOG_BLOCK = {"nis": [*NIS_VALUES, "flowGate.stateX", "flowGate.stateY",
+                         "flowGate.rejX", "flowGate.rejY", "flowGate.entryX", "flowGate.entryY"]}
+GATE_PARAMS = ("enable", "threshold", "maxReject", "recoverK")
 UNITS = {
     "gyro.*": "body deg/s, calibrated and filtered",
     "acc.*": "body Gs, calibrated/aligned and filtered; includes gravity at rest",
@@ -76,11 +80,13 @@ class LoggingError(RuntimeError):
 class Recorder:
     """Serialize callbacks/close with a lock; fail on missing/stale/erroring blocks."""
 
-    def __init__(self, cf, directory, period_ms, origin=None, clock=time.monotonic, ranger=False):
+    def __init__(self, cf, directory, period_ms, origin=None, clock=time.monotonic, ranger=False, nis=False):
         self.cf, self.directory, self.clock = cf, Path(directory), clock
         self.origin = clock() if origin is None else origin
         self.period_ms = period_ms
         self.log_blocks = {**LOG_BLOCKS, **(RANGER_LOG_BLOCK if ranger else {})}
+        if nis:
+            self.log_blocks.update(NIS_LOG_BLOCK)
         self.lock = threading.RLock()
         self.blocks = {}
         self.errors = []
@@ -115,7 +121,13 @@ class Recorder:
                     block = self.blocks[name]
                     try:
                         values = [data[v] for v in block["variables"]]
-                        if not all(math.isfinite(v) for v in values):
+                        for variable, value in zip(block["variables"], values):
+                            if math.isfinite(value):
+                                continue
+                            # Firmware initializes NIS to NaN until the first flow update.
+                            if (variable in NIS_VALUES and math.isnan(value)
+                                    and math.isnan(block["latest"].get(variable, math.nan))):
+                                continue
                             raise ValueError("nonfinite measurement")
                         now = self.clock()
                         if block["last_ms"] is None:
@@ -265,6 +277,20 @@ def parameter_snapshot(cf):
     return {group: dict(values) for group, values in cf.param.values.items()}
 
 
+def nis_metadata(cf, parameters):
+    missing = [name for name in NIS_LOG_BLOCK["nis"]
+               if cf.log.toc.get_element_by_complete_name(name) is None]
+    gate = parameters.get("flowGate", {})
+    firmware = parameters.get("firmware", {})
+    missing.extend("flowGate." + key for key in GATE_PARAMS if key not in gate)
+    missing.extend("firmware." + key for key in ("revision0", "revision1") if key not in firmware)
+    if missing:
+        raise LoggingError("--nis requires firmware telemetry missing from this device: " + ", ".join(missing))
+    # version.vtpl exports the first 8 and next 4 Git hex digits as unsigned integers.
+    revision = f"{int(firmware['revision0']):08x}{int(firmware['revision1']):04x}"
+    return {"flowGate": dict(gate), "firmware_revision": revision}
+
+
 class PositionFlight:
     """Single-threaded setpoints. Every arm attempt is paired with stop/disarm cleanup.
 
@@ -361,6 +387,7 @@ def parse_args(argv=None):
     p.add_argument("--note", default="")
     p.add_argument("--metadata", type=Path, help="Session JSON, see session.example.json")
     p.add_argument("--ranger", action="store_true", help="Also log Multi-ranger front/back/left/right/up at at most 10 Hz")
+    p.add_argument("--nis", action="store_true", help="Also record flow NIS, gate states and counters at --period")
     p.add_argument("--out", type=Path, default=REAL_DIR / "data")
     args = p.parse_args(argv)
     if not re.fullmatch(r"[A-Za-z0-9_-]+", args.name):
@@ -396,9 +423,10 @@ def checked_metadata(path):
 def collect(cf, args, session, directory):
     """Own all file/link resources, including partial logging startup failures."""
     origin = time.monotonic()
-    recorder = Recorder(cf, directory, args.period, origin, ranger=args.ranger)
+    recorder = Recorder(cf, directory, args.period, origin, ranger=args.ranger, nis=args.nis)
     meta = {"schema_version": 1, "start_time_utc": datetime.now(timezone.utc).isoformat(),
-            "arguments": {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()},
+            "arguments": {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()
+                          if k != "nis" or v},
             "session": session, "cflib_version": importlib.metadata.version("cflib"),
             "python_version": sys.version, "units": UNITS, "log_blocks": recorder.log_blocks,
             "logger_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -431,6 +459,8 @@ def collect(cf, args, session, directory):
         meta["parameters_before"] = parameter_snapshot(cf)
         # Automatically recorded raw revision fields; do not invent a firmware SHA.
         meta["firmware_reported"] = meta["parameters_before"].get("firmware", {})
+        if args.nis:
+            meta.update(nis_metadata(cf, meta["parameters_before"]))
         if args.ranger and cf.param.get_value("deck.bcMultiranger") != "1":
             raise RuntimeError("--ranger requested but Multi-ranger deck not detected")
         if args.height:

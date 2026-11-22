@@ -1,4 +1,4 @@
-"""Stock kalmanCore scheduling with Flow/ToF. No custom measurement gating.
+"""Stock kalmanCore scheduling with Flow/ToF and an optional C flow gate.
 
 Mirrors src/modules/src/estimator/estimator_kalman.c:214-366. Ground truth is
 deliberately absent from this module's interface. See ../BASELINE_EKF.md.
@@ -10,6 +10,7 @@ import numpy as np
 
 from sensors import FLOW_RESOLUTION, flow_model, tof_model
 from controllers.firmware_pid import assign_xyz
+from flow_gate import FlowGateConfig
 
 PREDICTION_PERIOD_MS = 10  # estimator_kalman.c:119-120.
 MAX_POSITION_M = 100.0    # kalman_supervisor.c:34-56, not exposed by SWIG.
@@ -36,16 +37,20 @@ def state_dict(state):
 
 
 class FirmwareEKF:
-    def __init__(self, initial_xy_yaw=None):
+    def __init__(self, initial_xy_yaw=None, flow_audit=False, fault_labels=False, flow_gate=None, flow_gate_log=False):
         """initial_xy_yaw: optional (x m, y m, yaw rad), the stock kalman.initialX/
         initialY/initialYaw parameters. None keeps the stock zeros (baseline)."""
         import cffirmware
         self.cf = cffirmware
         self.initial_xy_yaw = initial_xy_yaw
+        self.flow_audit, self.fault_labels = flow_audit, fault_labels
+        self.flow_gate_config = flow_gate or FlowGateConfig()
+        self.flow_gate_log = bool(flow_gate_log or self.flow_gate_config.enabled)
         self.reset()
 
     def reset(self):
         cf = self.cf
+        self.flow_gate_settings = self.flow_gate_config.apply(cf, self.flow_gate_log)
         self.core = cf.kalmanCoreData_t()
         self.params = cf.kalmanCoreParams_t()
         cf.kalmanCoreDefaultParams(self.params)
@@ -96,6 +101,8 @@ class FirmwareEKF:
         self.counts["process_noise"] += 1
 
         innovations = []
+        self.flow_updates = []
+        self.flow_gate_rows = []
         for packet in packets:
             if packet.delivery_ms > now_ms:
                 raise ValueError("Cannot consume a measurement before arrival")
@@ -118,7 +125,8 @@ class FirmwareEKF:
                    "measured_x": float(packet.value[0]), "measured_y": math.nan,
                    "predicted_x": math.nan, "predicted_y": math.nan,
                    "innovation_x": math.nan, "innovation_y": math.nan,
-                   "std_dev": packet.std, "used_by_core": True}
+                   "std_dev": packet.std, "used_by_core": True,
+                   "nis_x": math.nan, "nis_y": math.nan}
             if kind == "flow":
                 gyro = np.array([self.gyro_latest.x, self.gyro_latest.y, self.gyro_latest.z])
                 predicted_counts = flow_model(s[cf.KC_STATE_Z], rotation,
@@ -137,6 +145,49 @@ class FirmwareEKF:
                 measurement.dt = packet.dt_s
                 measurement.stdDevX = measurement.stdDevY = packet.std
                 cf.kalmanCoreUpdateWithFlow(self.core, measurement, self.gyro_latest)
+                # Read immediately: C diagnostics belong to the latest flow call.
+                # These use the actual scalar error/HPHR, not the Python prediction.
+                row.update(nis_x=cf.kalmanCoreGetFlowNisX(), nis_y=cf.kalmanCoreGetFlowNisY())
+                if self.flow_gate_log:
+                    decisions = []
+                    for axis in "xy":
+                        status = getattr(cf, f"kalmanCoreGetFlowGate{axis.upper()}")(self.core)
+                        decision = ("accepted", "rejected", "forced")[status.decision]
+                        decisions.append(decision)
+                        labels = packet.flow_labels or {}
+                        self.flow_gate_rows.append(dict(
+                            flow_sample_id=packet.sample_ms//10, time_s=now_ms/1000,
+                            sample_time_s=packet.sample_ms/1000, delivery_time_s=packet.delivery_ms/1000,
+                            axis=axis, nis=row[f"nis_{axis}"],
+                            hphr_pixels2=getattr(cf, f"kalmanCoreGetFlowInnovationVariance{axis.upper()}")(),
+                            decision=decision, streak_before=status.streakBefore,
+                            run_at_decision=status.runAtDecision, consecutive_rejections=status.consecutive,
+                            accepted_total=status.accepted, rejected_total=status.rejected, forced_total=status.forced,
+                            reset_epoch=self.reset_count, gate_enabled=cf.kalmanCoreGetFlowGateEnabled(),
+                            threshold=cf.kalmanCoreGetFlowGateThreshold(), max_reject=cf.kalmanCoreGetFlowGateMaxReject(),
+                            fault_type=labels.get("fault_type", "off"),
+                            fault_active=labels.get("fault_active", False),
+                            fault_changed=labels.get(f"fault_changed_{axis}", False)))
+                        if self.flow_gate_config.enabled == 2:
+                            self.flow_gate_rows[-1].update(
+                                state_before=("armed", "recovery")[status.stateBefore],
+                                state_at_update=("armed", "recovery")[status.stateAtUpdate],
+                                state_after=("armed", "recovery")[status.state],
+                                recovery_good_run=status.recoveryRunAtDecision,
+                                recovery_good_streak=status.recoveryConsecutive,
+                                recovery_entries_total=status.recoveryEntries,
+                                recovery_samples_total=status.samplesInRecovery,
+                                recover_k=cf.kalmanCoreGetFlowGateRecoverK())
+                    row["used_by_core"] = any(d != "rejected" for d in decisions)
+                if self.flow_audit:
+                    self.flow_updates.append(dict(
+                        flow_sample_id=packet.sample_ms//10, sample_time_s=packet.sample_ms/1000,
+                        delivery_time_s=packet.delivery_ms/1000,
+                        hphr_x_pixels2=cf.kalmanCoreGetFlowInnovationVarianceX(),
+                        hphr_y_pixels2=cf.kalmanCoreGetFlowInnovationVarianceY(),
+                        prediction_x_counts=cf.kalmanCoreGetFlowPredictionX()/FLOW_RESOLUTION,
+                        prediction_y_counts=cf.kalmanCoreGetFlowPredictionY()/FLOW_RESOLUTION,
+                        nis_x=row["nis_x"], nis_y=row["nis_y"]))
             elif kind == "tof":
                 predicted = tof_model(s[cf.KC_STATE_Z], rotation[2, 2])
                 row.update(predicted_x=predicted, innovation_x=packet.value[0]-predicted,
@@ -148,6 +199,13 @@ class FirmwareEKF:
                 cf.kalmanCoreUpdateWithTof(self.core, measurement)
             else:
                 raise ValueError(f"Unsupported measurement {kind}")
+            # Labels are copied AFTER the C update; never supplied to C or used
+            # to decide whether/how a measurement updates the filter.
+            if self.fault_labels:
+                row.update(packet.flow_labels if kind == "flow" else {
+                    "flow_sample_id": "", "fault_type": "not_applicable",
+                    "fault_window_active": False, "fault_active": False,
+                    "fault_changed_x": False, "fault_changed_y": False})
             innovations.append(row)
 
         self.counts["finalize_calls"] += 1

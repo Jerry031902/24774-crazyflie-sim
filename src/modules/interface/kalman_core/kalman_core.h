@@ -64,6 +64,33 @@ typedef enum
   KC_STATE_X, KC_STATE_Y, KC_STATE_Z, KC_STATE_PX, KC_STATE_PY, KC_STATE_PZ, KC_STATE_D0, KC_STATE_D1, KC_STATE_D2, KC_STATE_DIM
 } kalmanCoreStateIdx_t;
 
+typedef enum {
+  KC_FLOW_ACCEPTED = 0, KC_FLOW_REJECTED = 1, KC_FLOW_FORCED = 2
+} kalmanScalarGateDecision_t;
+
+typedef enum {
+  KC_FLOW_ARMED = 0, KC_FLOW_RECOVERY = 1
+} kalmanScalarGateMode_t;
+
+// Per-core/per-axis accounting. Accepted excludes forced, so the three totals
+// are disjoint. Init resets counters; changing configuration resets only streaks.
+typedef struct {
+  uint32_t accepted;
+  uint32_t rejected;
+  uint32_t forced;
+  uint16_t consecutive;
+  uint16_t streakBefore;
+  uint16_t runAtDecision;
+  uint8_t decision;
+  uint8_t state;
+  uint8_t stateBefore;
+  uint8_t stateAtUpdate;
+  uint16_t recoveryConsecutive;
+  uint16_t recoveryRunAtDecision;
+  uint32_t recoveryEntries;
+  uint32_t samplesInRecovery;
+} kalmanScalarGateState_t;
+
 
 // The data used by the kalman core implementation.
 typedef struct {
@@ -101,6 +128,12 @@ typedef struct {
 
   uint32_t lastPredictionMs;
   uint32_t lastProcessNoiseUpdateMs;
+  kalmanScalarGateState_t flowGateX;
+  kalmanScalarGateState_t flowGateY;
+  uint8_t flowGateEnabled;
+  float flowGateThreshold;
+  uint16_t flowGateMaxReject;
+  uint16_t flowGateRecoverK;
 } kalmanCoreData_t;
 
 // The parameters used by the filter
@@ -190,5 +223,19 @@ void kalmanCoreExternalizeState(const kalmanCoreData_t* this, state_t *state, co
 void kalmanCoreDecoupleXY(kalmanCoreData_t* this);
 
 void kalmanCoreScalarUpdate(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm, float error, float stdMeasNoise);
+
+// Same scalar update, optionally recording error^2 / (H P H' + R) before correction.
+// Returns the exact innovation variance for read-only diagnostics.
+// A NULL output retains the original interface's behavior. No gating or tuning.
+float kalmanCoreScalarUpdateWithNis(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm, float error, float stdMeasNoise, float *nis);
+
+// Same arithmetic, with a decision before any state/covariance mutation.
+float kalmanCoreScalarUpdateWithGate(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm,
+  float error, float stdMeasNoise, float *nis, kalmanScalarGateState_t *gate,
+  uint8_t enabled, float threshold, uint16_t maxReject);
+
+float kalmanCoreScalarUpdateWithRecoveryGate(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm,
+  float error, float stdMeasNoise, float *nis, kalmanScalarGateState_t *gate,
+  float threshold, uint16_t maxReject, uint16_t recoverK);
 
 void kalmanCoreUpdateWithPKE(kalmanCoreData_t* this, arm_matrix_instance_f32 *Hm, arm_matrix_instance_f32 *Km, arm_matrix_instance_f32 *P_w_m, float error);

@@ -28,7 +28,11 @@ PhysX true state
 
 The PID uses the previous completed EKF output. The EKF worker then processes the current measurements, matching the stock copy-before-wakeup ordering. [BASELINE_EKF.md](BASELINE_EKF.md#1-stock-order-and-rates) documents the exact order and source lines.
 
-Shared C algorithms can be tested in sim and reused on hardware after adding the required bindings and hardware integration. The baseline has no custom NIS gate. Passing in sim does not validate hardware timing, sensor fidelity, or the complete flight safety logic.
+Shared C algorithms can be tested in sim and reused on hardware after adding the required bindings and hardware integration. The baseline uses `--flow-gate 0` (stock). An optional per-axis C NIS gate is described in [BASELINE_EKF.md](BASELINE_EKF.md#step-3-optional-per-axis-c-flow-gate); fault flights require `--scene flow-empty`. Passing in sim does not validate hardware timing, sensor fidelity, or the complete flight safety logic.
+
+The [Step 4 matched campaign](BASELINE_EKF.md#step-4-matched-threshold-9-campaign) records five paired noise/fault seeds per case, complete per-seed statistics, and explicit handling of truncated flights and censored recovery. Its threshold is fixed at 9.0; it does not launch a threshold sweep.
+
+Gate v2 (`--flow-gate 2`) adds a per-axis RECOVERY state; modes 0 and 1 retain their previous behavior and CSV schema. See the [fixed A/B experiment](BASELINE_EKF.md#gate-v2-recovery-and-frozen-ab-experiment) for semantics, validation seeds, and reporting commands. This remains simulation-only.
 
 ---
 
@@ -442,12 +446,12 @@ Recommended workflow for anything that will fly on the real drone:
 
 | Item | Current value / status | Replace with |
 |---|---|---|
-| `MASS_KG` | 0.030 (placeholder) | Measured total mass with battery + Flow deck + Ranger deck |
+| `MASS_KG` | 0.033 kg (measured with battery + Flow deck + Ranger deck; scale resolution 1 g) | Recheck if the vehicle configuration changes |
 | `INERTIA_KGM2` | `(1.6572e-5, 1.6656e-5, 2.9262e-5)` kg·m² in `run_sim.py`; placeholders, not measured for this vehicle | Estimate including battery and decks |
 | Motor dynamics | None (force changes instantly) | Kelvin's motor time constant |
 | Sensor noise (IMU, Flow, ToF) | IMU and ToF from static bench tests, motors off (`sensors.py`); Flow assumed | Flow from bench tests on a consistent floor and lighting; IMU noise with motors running (vibration) |
 | Sensor bias, delay | Bias not modeled; configurable additional delays all default to zero. IMU filtering still adds lag. | Values from real logs |
-| Flow noise vs EKF assumption | Noise-on Gaussian standard deviation and stock measurement standard deviation are both 2.0 firmware counts. Noise-off keeps the latter. | Measured noise and separately specified fault cases. Matching one standard deviation does not establish EKF optimality or eliminate Gaussian tail events; no custom gate is present. |
+| Flow noise vs EKF assumption | Noise-on Gaussian standard deviation and stock measurement standard deviation are both 2.0 firmware counts. Noise-off keeps the latter. | Measured noise and separately specified fault cases. Matching one standard deviation does not establish EKF optimality or eliminate Gaussian tail events. The optional C gate defaults off; its threshold and fallback require matched validation. |
 | Battery voltage compensation | Firmware config enables it, but the simulation does not run the voltage-to-PWM stage. The adapter converts the pre-compensation force command directly to N. | Battery/motor model if needed |
 | Flow / ToF geometry | Stock measurement models on a flat floor; no camera images or scene raycasts, no texture failure/dropout model | Scene-dependent sensing if needed |
 | EKF observability | Flow/ToF provide no absolute XY or yaw reference; noise-on position drift is expected | External reference only if available on the real system |

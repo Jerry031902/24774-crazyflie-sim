@@ -1,0 +1,21 @@
+{
+  "sim_unittest": {
+    "total": 118,
+    "pass": 117,
+    "fail": 1,
+    "new_failures": [],
+    "unchanged_failure": "test_c_replays_python_decisions: 622 mode mismatches",
+    "log": "sim_tests_final.log"
+  },
+  "statistics_tests": {
+    "total": 7,
+    "pass": 7
+  },
+  "safety_flights": "not rerun; baseline unchanged, not claimed as verified",
+  "protected_source_hash_checks": {
+    "sim/tests/test_wedgebug.py": true,
+    "sim/tests/smoke_safety.py": true
+  },
+  "stm32_build": "not available on this machine; not verified",
+  "native_bindings": "unchanged from accepted Step 3; hash frozen by campaign"
+}

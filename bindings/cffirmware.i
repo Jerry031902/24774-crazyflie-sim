@@ -45,6 +45,11 @@
 %include "power_distribution.h"
 %include "axis3fSubSampler.h"
 %include "outlierFilterTdoa.h"
+// The optional float-output helper is C-only. Python reads the flow diagnostics
+// through kalmanCoreGetFlowNisX/Y, exported by mm_flow.h below.
+%ignore kalmanCoreScalarUpdateWithNis;
+%ignore kalmanCoreScalarUpdateWithGate;
+%ignore kalmanCoreScalarUpdateWithRecoveryGate;
 %include "kalman_core.h"
 %include "mm_tdoa.h"
 %include "mm_pose.h"

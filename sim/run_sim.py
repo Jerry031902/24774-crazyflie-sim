@@ -24,9 +24,9 @@ from pathlib import Path
 from controllers.constant_thrust import ConstantThrustController
 from controllers.altitude_pid import AltitudePIDController
 
-# Editable settings. Replace both placeholders with the team's measurements.
+# Editable settings. Mass is measured; inertia remains a placeholder.
 # INERTIA_KGM2 is about the COM, with principal axes aligned to body XYZ.
-MASS_KG = 0.030
+MASS_KG = 0.033  # Measured with battery, Flow deck and Ranger deck; scale resolution 1 g.
 INERTIA_KGM2 = (1.6572e-5, 1.6656e-5, 2.9262e-5)  # Placeholder, kg*m^2.
 MODE = "altitude_pid"  # Also "firmware_pid", "free_fall" or "hover_ff".
 EKF_MODES = ("ekf_shadow", "ekf_closed_loop")
@@ -181,7 +181,8 @@ def reset_runtime(sim, controller):
         _ranger.reset()
 
 
-def make_controller(mode, noise=False, seed=7, initial_xy_yaw=None):
+def make_controller(mode, noise=False, seed=7, initial_xy_yaw=None, flow_fault=None, flow_audit=False,
+                    flow_gate=None, flow_gate_log=False):
     """Select a controller without importing Isaac Sim into controller code."""
     if mode == "altitude_pid":
         return AltitudePIDController(
@@ -196,7 +197,8 @@ def make_controller(mode, noise=False, seed=7, initial_xy_yaw=None):
         from controllers.ekf_pid import EKFPIDController
         if PHYSICS_DT != 0.001 or GRAVITY_M_S2 != 9.81:
             raise ValueError("Stock EKF baseline requires 1 ms steps and gravity 9.81")
-        return EKFPIDController(mode, noise=noise, seed=seed, initial_xy_yaw=initial_xy_yaw)
+        return EKFPIDController(mode, noise=noise, seed=seed, initial_xy_yaw=initial_xy_yaw,
+                                flow_fault=flow_fault, flow_audit=flow_audit, flow_gate=flow_gate, flow_gate_log=flow_gate_log)
     if mode in ("free_fall", "hover_ff"):
         return ConstantThrustController(0.0 if mode == "free_fall" else MASS_KG * GRAVITY_M_S2)
     raise ValueError(f"Unknown mode: {mode}")
@@ -204,7 +206,8 @@ def make_controller(mode, noise=False, seed=7, initial_xy_yaw=None):
 
 def setup_simulation(mode, target_z_m=TARGET_Z_M, noise=False, seed=7, ranger=False, ranger_noise=False,
                      scene_path=ARENA_PATH, initial_position=INITIAL_POSITION, camera=None,
-                     ekf_initial_xy_yaw=None):
+                     ekf_initial_xy_yaw=None, flow_fault=None, flow_audit=False, contact_reports=False,
+                     flow_gate=None, flow_gate_log=False):
     """Open the scene, reference the drone, and start fixed-step physics.
 
     Missions pass their own scene, start position and camera (eye, target),
@@ -220,7 +223,8 @@ def setup_simulation(mode, target_z_m=TARGET_Z_M, noise=False, seed=7, ranger=Fa
     from pxr import Gf, PhysxSchema, Usd, UsdGeom, UsdPhysics
 
     _initial_position = tuple(map(float, initial_position))
-    controller = make_controller(mode, noise=noise, seed=seed, initial_xy_yaw=ekf_initial_xy_yaw)
+    controller = make_controller(mode, noise=noise, seed=seed, initial_xy_yaw=ekf_initial_xy_yaw,
+                                 flow_fault=flow_fault, flow_audit=flow_audit, flow_gate=flow_gate, flow_gate_log=flow_gate_log)
     if not math.isfinite(MASS_KG) or MASS_KG <= 0:
         raise ValueError("MASS_KG must be positive and finite")
     if len(INERTIA_KGM2) != 3 or any(not math.isfinite(i) or i <= 0 for i in INERTIA_KGM2):
@@ -270,6 +274,10 @@ def setup_simulation(mode, target_z_m=TARGET_Z_M, noise=False, seed=7, ranger=Fa
             collision = PhysxSchema.PhysxCollisionAPI.Apply(prim)
             collision.CreateContactOffsetAttr(0.001)
             collision.CreateRestOffsetAttr(0.0)
+
+    if contact_reports:
+        from flow_test_scene import ContactLog
+        ContactLog.enable(stage, BODY_PRIM_PATH)
 
     sim = SimulationContext(
         physics_dt=PHYSICS_DT,
@@ -327,6 +335,7 @@ def main():
     parser.add_argument("--noise", choices=("off", "on"),
                         help="Bench-measured IMU/Flow/ToF noise (default: on in EKF modes, off otherwise)")
     parser.add_argument("--seed", type=int, default=7, help="Sensor noise seed; independent EKF and Ranger RNG streams")
+    parser.add_argument("--scene", choices=("arena", "flow-empty"), default="arena")
     parser.add_argument("--ranger", choices=("off", "on"), default="on",
                         help="Five-direction geometric ranging; only --mission avoids obstacles with it (default: on)")
     parser.add_argument("--ranger-noise", choices=("off", "on"),
@@ -344,7 +353,25 @@ def main():
                         help="Assumed PID braking response delay [s]; validate in PhysX")
     parser.add_argument("--safety-backup-brake-accel", type=float, default=.5)
     parser.add_argument("--safety-backup-brake-response", type=float, default=.25)
+    from flow_faults import add_flow_arguments, config_from_args
+    from flow_gate import add_gate_arguments, gate_from_args
+    add_flow_arguments(parser)
+    add_gate_arguments(parser)
     args = parser.parse_args()
+    if args.trajectory != "hover-move":
+        args.demo = True
+    if (args.flow_fault != "off" or args.flow_audit or args.trajectory != "hover-move"
+        or args.flow_gate or args.flow_gate_log or args.scene == "flow-empty") and (
+        args.mode not in EKF_MODES or args.mission or not args.demo
+    ):
+        parser.error("Flow faults/audit/shuttles require an EKF demo, without --mission")
+    if args.flow_fault != "off" and args.scene != "flow-empty":
+        parser.error("Fault flights require --scene flow-empty")
+    try:
+        flow_fault = config_from_args(args, args.hover_seconds)
+        flow_gate = gate_from_args(args)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.safety == "on" and not args.mission:
         parser.error("--safety on currently requires --mission")
     for value in (args.safety_brake_accel, args.safety_backup_brake_accel):
@@ -389,14 +416,21 @@ def main():
     from isaacsim import SimulationApp
 
     app = SimulationApp({"headless": args.headless})  # False by default.
-    logger = ranger_logger = None
+    logger = ranger_logger = contacts = None
     demo = None
     csv_path = None
     try:
+        import numpy as np
         ranger_kwargs = dict(ranger=args.ranger == "on", ranger_noise=args.ranger_noise == "on")
         if mission is None:
+            scene_path = ARENA_PATH
+            if args.scene == "flow-empty":
+                from flow_test_scene import make_empty_scene, ContactLog
+                scene_path, _ = make_empty_scene(ARENA_PATH, SIM_DIR.parent/"build/demo_live/flow_empty.usda")
             sim, controller = setup_simulation(args.mode, args.target_z, noise=args.noise == "on", seed=args.seed,
-                                               **ranger_kwargs)
+                                               flow_fault=flow_fault, flow_audit=args.flow_audit,
+                                               flow_gate=flow_gate, flow_gate_log=args.flow_gate_log,
+                                               scene_path=scene_path, contact_reports=args.scene == "flow-empty", **ranger_kwargs)
         else:
             (x0, x1), (y0, y1) = mission.xlim, mission.ylim
             overview = (((x0 + x1) / 2, y0 - 0.6 * (y1 - y0), 0.9 * max(x1 - x0, y1 - y0)),
@@ -427,14 +461,20 @@ def main():
             if safety_config is not None:
                 print("Safety: ON; horizontal-only; configured braking bounds await PhysX calibration", flush=True)
         elif args.demo or args.csv:
-            from flight_demo import FlightLog, HoverMoveDemo, TimedHoverMoveDemo
-            demo_type = TimedHoverMoveDemo if args.mode in EKF_MODES else HoverMoveDemo
-            demo = demo_type(args.target_z, hover_hold_s=args.hover_seconds) if args.demo else None
+            from flight_demo import FlightLog, HoverMoveDemo, make_timed_demo
+            if args.demo:
+                demo = (make_timed_demo(args.trajectory, args.target_z, args.hover_seconds)
+                        if args.mode in EKF_MODES else HoverMoveDemo(args.target_z, args.hover_seconds))
             default_csv = (f"build/demo_live/{args.mode}_noise_{args.noise}.csv"
                            if args.mode in EKF_MODES else "build/firmware_pid/demo.csv")
+            if args.trajectory != "hover-move" or flow_fault.kind != "off":
+                suffix = f"_{flow_fault.spike_amplitude:g}" if flow_fault.kind == "spike" else ""
+                default_csv = f"build/demo_live/{args.trajectory}_{args.mode}_noise_{args.noise}_{flow_fault.kind}{suffix}.csv"
             csv_path = args.csv or SIM_DIR.parent / default_csv
             logger = FlightLog(csv_path)
             print(f"Flight CSV: {csv_path}", flush=True)
+        if args.scene == "flow-empty" and csv_path is not None:
+            contacts = ContactLog(csv_path.with_suffix(".contacts.csv"))
         if _ranger is not None:
             from ranger import RangerLog
             ranger_path = args.ranger_csv or (csv_path.with_suffix(".ranger.csv") if csv_path else
@@ -468,10 +508,15 @@ def main():
                 if logger is not None:
                     logger.close()
                     logger = FlightLog(csv_path)  # A fresh CSV for the restarted episode.
+                if contacts is not None:
+                    contacts.close()
+                    contacts = ContactLog(csv_path.with_suffix(".contacts.csv"))
                 if ranger_logger is not None:
                     ranger_logger = RangerLog(ranger_path, _ranger)
 
             state = read_state(steps * PHYSICS_DT)
+            if args.scene == "flow-empty" and (not np.isfinite(state["position_m"]).all() or np.linalg.norm(state["position_m"]) > 20.):
+                raise RuntimeError("Flight left the empty-scene position bound")
             ranger_packets = sample_ranger(state)
             if ranger_logger is not None:
                 ranger_logger.write(ranger_packets)
@@ -484,6 +529,8 @@ def main():
             if logger is not None:
                 logger.write(state, target, command, demo.phase if demo else "hold",
                              demo.log_fields() if mission is not None else None)
+            if contacts is not None:
+                contacts.time_s = (steps+1)*PHYSICS_DT
             sim.step(render=False)  # Exactly one 1 ms physics step per command.
             steps += 1
             if steps % print_every == 0:
@@ -536,6 +583,9 @@ def main():
                 logger.close()
             if ranger_logger is not None:
                 ranger_logger.close()
+            if contacts is not None:
+                contacts.close()
+                print(f"Contacts: {contacts.summary()}", flush=True)
             app.close()
 
 

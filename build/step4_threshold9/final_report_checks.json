@@ -1,0 +1,58 @@
+{
+  "rows": 80,
+  "paired_metric_rows": 1200,
+  "summary_rows": 240,
+  "report_links_exist": true,
+  "review_source_hashes_match": true,
+  "outside_zero_forced_count": 0,
+  "driver_drop_counts_by_case": {
+    "off": [
+      [
+        0,
+        0
+      ]
+    ],
+    "spike5": [
+      [
+        0,
+        0
+      ]
+    ],
+    "spike10": [
+      [
+        0,
+        0
+      ]
+    ],
+    "spike20": [
+      [
+        0,
+        0
+      ]
+    ],
+    "spike50": [
+      [
+        0,
+        0
+      ]
+    ],
+    "zero": [
+      [
+        0,
+        0
+      ]
+    ],
+    "dropout": [
+      [
+        400,
+        0
+      ]
+    ],
+    "scale05": [
+      [
+        0,
+        0
+      ]
+    ]
+  }
+}
