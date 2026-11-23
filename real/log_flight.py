@@ -42,12 +42,12 @@ ORIGIN_SPREAD_M = 0.05
 ORIGIN_YAW_SPREAD_DEG = 5.0
 # Flight limits measured on the host monotonic clock. Station masks refresh at ~5 Hz.
 LIGHTHOUSE_LOSS_S = 0.40
-LIGHTHOUSE_STALE_S = 0.35
 FENCE_XY_MARGIN_M = 0.5
 FENCE_Z_MARGIN_M = 0.3
 CONNECT_TIMEOUT_S = 20.0
 LOG_START_TIMEOUT_S = 5.0
 LOG_STALE_S = 0.5
+LIGHTHOUSE_STALE_S = LOG_STALE_S
 TIMESTAMP_MODULUS = 1 << 24  # cflib/firmware log packet: 24-bit milliseconds.
 
 # Native TOC types are used, and actual sizes/types are saved in meta.json.

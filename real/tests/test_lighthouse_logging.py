@@ -1,6 +1,6 @@
 """Exercise the real recorder/flight loop with synthetic CRTP log packets and a virtual clock."""
 
-from contextlib import ExitStack, redirect_stderr, redirect_stdout
+from contextlib import ExitStack, closing, redirect_stderr, redirect_stdout
 import csv
 import io
 import itertools
@@ -523,6 +523,24 @@ class LighthouseTests(unittest.TestCase):
         with (self.path / "lighthouse.csv").open() as file:
             self.assertEqual(sum(int(row["lighthouse.bsReceive"]) == 0 for row in csv.DictReader(file)), 6)
 
+    def test_healthy_packet_burst_after_372_ms_host_stall(self):
+        bench = self.bench
+        recorder = app.Recorder(bench.cf, self.path, 10, clock=lambda: bench.now, lighthouse=True)
+        with (patch.object(app.LogConfig, "start", autospec=True, side_effect=bench.start),
+              patch.object(app.LogConfig, "stop"), patch.object(app.LogConfig, "delete"), closing(recorder)):
+            recorder.start()
+            recorder.watch_lighthouse_flight(lambda _: None)
+            # Both stations remain valid. All packets due during the stall arrive together.
+            bench.now = 0.372
+            for device_ms in range(10, 371, 10):
+                for config in bench.configs:
+                    if device_ms % config.period_in_ms == 0:
+                        bench.packet(config, device_ms)
+            recorder.check()
+            for name, count, gap in (("imu", 38, 10), ("lighthouse", 4, 100)):
+                block = recorder.blocks[name]
+                self.assertEqual((block["count"], block["max_gap_ms"]), (count, gap))
+
     def test_a_late_healthy_packet_cannot_hide_a_missed_deadline(self):
         for fault in ("silence", "masks"):
             with self.subTest(fault=fault):
@@ -538,8 +556,8 @@ class LighthouseTests(unittest.TestCase):
                             if fault == "masks" and name == "lighthouse" and bench.now < 0.51:
                                 data["lighthouse.bsGeoVal"] = 0
                         bench.adjust_sample = masks
-                        # Deliver a healthy packet after the deadline, before the next control check.
-                        for ms in ([360] if fault == "silence" else [100, 200, 300, 400, 510]):
+                        # Deliver a healthy packet at or past the deadline, before the next control check.
+                        for ms in ([500] if fault == "silence" else [100, 200, 300, 400, 510]):
                             bench.now = ms / 1000
                             bench.packet(config, ms)
                         reason = "Stale Lighthouse telemetry" if fault == "silence" else "Lighthouse tracking lost"
