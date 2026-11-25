@@ -1,0 +1,14 @@
+{
+  "name": "straight",
+  "description": "First flight: no obstacle, 1.5 m straight ahead along the nose. Checks takeoff, the mission frame, GO_TO_GOAL, hold and landing.",
+  "start": [0.0, 0.0],
+  "psi0_deg": 0,
+  "waypoints": [],
+  "goal": [1.5, 0.0],
+  "height": 0.5,
+  "fence": [-0.5, 2.3, -1.0, 1.0],
+  "max_time": 30,
+  "hold_time": 2,
+  "obstacles": [],
+  "nav": {}
+}

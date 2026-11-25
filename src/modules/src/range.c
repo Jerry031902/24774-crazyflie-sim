@@ -33,12 +33,16 @@
 #include "estimator.h"
 
 static uint16_t ranges[RANGE_T_END] = {0,};
+// Number of rangeSet() calls per direction, so a reader polling rangeGet()
+// can tell a fresh measurement from a held one (apps/wedgebug).
+static uint32_t updateCount[RANGE_T_END] = {0,};
 
 void rangeSet(rangeDirection_t direction, float range_m)
 {
   if (direction > (RANGE_T_END-1)) return;
 
   ranges[direction] = range_m * 1000;
+  updateCount[direction]++;
 }
 
 float rangeGet(rangeDirection_t direction)
@@ -46,6 +50,13 @@ float rangeGet(rangeDirection_t direction)
     if (direction > (RANGE_T_END-1)) return 0;
 
   return ranges[direction];
+}
+
+uint32_t rangeGetUpdateCount(rangeDirection_t direction)
+{
+  if (direction > (RANGE_T_END-1)) return 0;
+
+  return updateCount[direction];
 }
 
 void rangeEnqueueDownRangeInEstimator(float distance, float stdDev, uint32_t timeStamp) {

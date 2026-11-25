@@ -2,6 +2,8 @@
 
 这里保存真机 logger、setup 和 calibration 计划。`sim/` 负责 simulation；本目录使用 host Python 和 Crazyradio，不需要启动 Isaac Sim。
 
+**WedgeBug missions:** `wedgebug_mission.py` flies the on-board WedgeBug app (missions in `missions/`, plots with `plot_wedgebug.py`); build, flash and test plan in [apps/wedgebug/README.md](../apps/wedgebug/README.md).
+
 **验证状态：** 已检查本机 cflib 0.1.34、当前 repo firmware、已有 TOC cache，并做 offline fault-injection tests。置信度高的是 API、variable/type、units 和 Python cleanup 行为。**修正版尚未连接真机验证，radio delivery、实际 landing 和飞行稳定性未知。** 测试不会初始化 CRTP driver 或访问 radio。
 
 ## 1. Hardware 与 firmware 记录

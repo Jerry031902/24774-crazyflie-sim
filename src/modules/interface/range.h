@@ -27,6 +27,8 @@
 
 #pragma once
 
+#include <stdint.h>
+
 typedef enum {
     rangeFront=0,
     rangeBack,
@@ -49,9 +51,20 @@ void rangeSet(rangeDirection_t direction, float range_m);
  * Get the range for a certain direction
  *
  * @param direction Direction of the range
- * @return Distance to an object in meter
+ * @return Distance to an object in millimeters (stored as uint16; the
+ *         Multi-ranger writes 32767 for any reading that is not RANGE_VALID,
+ *         and it is 0 until the first measurement)
  */
 float rangeGet(rangeDirection_t direction);
+
+/**
+ * Number of times rangeSet() has written a direction since boot. A change
+ * means a new measurement, even if its value equals the previous one.
+ *
+ * @param direction Direction of the range
+ * @return Update count (wraps at 2^32)
+ */
+uint32_t rangeGetUpdateCount(rangeDirection_t direction);
 
 /**
  * Enqueue a range measurement for distance to the ground in the current estimator.

@@ -1,0 +1,14 @@
+{
+  "name": "one_box",
+  "description": "First avoidance test: one box (about 0.5 x 0.5 m, at least 1 m tall) with its near face 1.5 m ahead; goal 3 m ahead. The drone should stop about 1 m short, sweep, and go round the shorter side. Obstacles are for plots only; the drone never sees this list.",
+  "start": [0.0, 0.0],
+  "psi0_deg": 0,
+  "waypoints": [],
+  "goal": [3.0, 0.0],
+  "height": 0.5,
+  "fence": [-0.5, 3.8, -1.5, 1.5],
+  "max_time": 60,
+  "hold_time": 2,
+  "obstacles": [{"kind": "box", "name": "Box", "center": [1.75, 0.0], "size": [0.5, 0.5]}],
+  "nav": {}
+}

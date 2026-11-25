@@ -1,0 +1,4 @@
+# wedgebug.c is the platform-independent navigator (also built into the cffirmware
+# Python bindings for the sim); wedgebug_app.c is the on-drone flight wrapper.
+obj-y += wedgebug.o
+obj-y += wedgebug_app.o
